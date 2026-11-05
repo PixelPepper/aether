@@ -365,12 +365,33 @@ function setTour( on ) {
 if ( params.has( 'tour' ) ) setTour( true );
 
 // ───────────────────────── loop ─────────────────────────
+// Raw (unclamped) frame intervals for tools/bench.mjs.
+const perf = {
+	times: new Float32Array( 4096 ), n: 0,
+	push( ms ) {
+
+		this.times[ this.n % 4096 ] = ms; this.n ++;
+
+	},
+	reset() {
+
+		this.n = 0;
+
+	},
+	recent() {
+
+		const k = Math.min( this.n, 4096 );
+		return Array.from( this.times.subarray( 0, k ) );
+
+	},
+};
 const clock = { t: 0, last: performance.now() };
 let fpsAcc = 0, fpsN = 0, frame = 0;
 
 async function tick() {
 
 	const now = performance.now();
+	perf.push( now - clock.last );
 	let dt = Math.min( ( now - clock.last ) / 1000, 1 / 20 );
 	clock.last = now;
 	if ( SHOT ) dt = 1 / 60;
@@ -502,4 +523,20 @@ window.__aether = { ctx, goTo, get current() {
 
 	return current;
 
-} };
+}, get index() {
+
+	return currentIndex;
+
+}, get switching() {
+
+	return switching;
+
+}, get gpuMs() {
+
+	return gpuMs;
+
+}, get pixelRatio() {
+
+	return pixelRatio;
+
+}, perf, adapter: { vendor: adapterInfo.vendor, architecture: adapterInfo.architecture, description: adapterInfo.description }, tier, chapters: chapters.map( ( c ) => c.id ) };
