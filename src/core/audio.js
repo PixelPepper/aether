@@ -8,6 +8,16 @@ const MOODS = {
 	collision: { root: 36.71, chord: [ 0, 5, 12, 17, 22 ], cutoff: 520, bells: 0.25, wind: 0.30, scale: [ 0, 5, 7, 10, 12 ] },
 	ocean: { root: 41.2, chord: [ 0, 7, 12, 16, 23 ], cutoff: 650, bells: 0.45, wind: 0.26, scale: [ 0, 4, 7, 11, 14 ] },
 	horizon: { root: 32.7, chord: [ 0, 7, 12, 13, 19 ], cutoff: 380, bells: 0.18, wind: 0.18, scale: [ 0, 1, 7, 8, 12 ] },
+	quantum: { root: 55.0, chord: [ 0, 7, 11, 14, 18 ], cutoff: 1100, bells: 0.7, wind: 0.06, scale: [ 0, 2, 6, 7, 11, 14 ] },
+	cosmicweb: { root: 38.89, chord: [ 0, 7, 10, 14, 17 ], cutoff: 560, bells: 0.4, wind: 0.2, scale: [ 0, 3, 5, 10, 12 ] },
+	stellar: { root: 34.65, chord: [ 0, 7, 12, 14, 19 ], cutoff: 820, bells: 0.2, wind: 0.42, scale: [ 0, 2, 7, 9 ] },
+	atmosphere: { root: 46.25, chord: [ 0, 4, 7, 11, 16 ], cutoff: 980, bells: 0.4, wind: 0.24, scale: [ 0, 4, 7, 11, 14 ] },
+	erosion: { root: 36.71, chord: [ 0, 7, 12, 15, 22 ], cutoff: 600, bells: 0.3, wind: 0.34, scale: [ 0, 3, 7, 10 ] },
+	morpho: { root: 51.91, chord: [ 0, 5, 9, 14, 19 ], cutoff: 850, bells: 0.5, wind: 0.08, scale: [ 0, 2, 5, 9, 12 ] },
+	crystal: { root: 61.74, chord: [ 0, 7, 14, 19, 23 ], cutoff: 1400, bells: 0.85, wind: 0.14, scale: [ 0, 2, 7, 11, 14, 19 ] },
+	aurora: { root: 43.65, chord: [ 0, 7, 12, 16, 21 ], cutoff: 720, bells: 0.45, wind: 0.3, scale: [ 0, 4, 7, 9, 12 ] },
+	silk: { root: 49.0, chord: [ 0, 4, 9, 14, 16 ], cutoff: 950, bells: 0.35, wind: 0.38, scale: [ 0, 4, 9, 11, 16 ] },
+	prism: { root: 58.27, chord: [ 0, 7, 12, 16, 19 ], cutoff: 1300, bells: 0.65, wind: 0.05, scale: [ 0, 4, 7, 12, 16, 19 ] },
 };
 const DEFAULT = MOODS.genesis;
 
