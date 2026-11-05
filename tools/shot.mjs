@@ -55,7 +55,7 @@ function portOpen( p ) {
 
 // ── capture semaphore: many agents share 4 CPU cores running SwiftShader; allow SLOTS concurrent captures ──
 import { mkdirSync as mk, rmSync, readFileSync as rf, writeFileSync as wf } from 'node:fs';
-const SLOTS = parseInt( process.env.SHOT_SLOTS || '3' );
+const SLOTS = parseInt( process.env.SHOT_SLOTS || '1000' ); // effectively no queue: every capture runs in parallel
 let slot = null;
 const waitStart = Date.now();
 while ( slot === null ) {

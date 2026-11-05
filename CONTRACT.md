@@ -79,8 +79,8 @@ Expect ~3–6 s per frame on SwiftShader for a full chapter at 640×360; budget 
 It prints console errors/warnings + page errors and exits non-zero on any error. Then **look at the PNG with the Read tool**.
 SwiftShader is ~100× slower than a real GPU: a run can take 1–4 min; use `--frames` small, `--w 960 --h 540` to iterate faster,
 and run long commands in the background. Shader compile errors (WGSL) show up as console errors — read them.
-Other agents share this machine (15 agents, 4 CPU cores). `tools/shot.mjs` holds a global semaphore (3 concurrent captures);
-it prints `[slot] waited Ns` when it had to queue. Never run more than one capture at a time yourself, keep captures small
+Other agents share this machine (15 agents). Captures are NOT queued: every capture starts immediately and runs in parallel
+with everyone else's, so each one is slower when many run at once. Keep captures small
 (`--w 480 --h 270` while iterating, few frames), and do useful work (reading three.js source, writing code) while one runs in
 the background instead of waiting idle. Kill any capture/browser you started if you abandon it.
 
