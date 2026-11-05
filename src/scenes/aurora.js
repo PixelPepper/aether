@@ -19,9 +19,9 @@ import { createLandscape } from './aurora/terrain.js';
 import { height } from './aurora/height.js';
 
 const TIERS = [
-	{ NX: 256, NY: 48, NZ: 64, electrons: 16384, maxElectrons: 32768, presets: [ 8192, 16384, 32768 ], nSub: 4, probeSamples: 24, maxSteps: 56, maxStepsRefl: 40, stepScale: 1.25, auroraScale: 0.3, reflScale: 0.3, mwW: 1024 },
-	{ NX: 384, NY: 72, NZ: 112, electrons: 262144, maxElectrons: 524288, presets: [ 131072, 262144, 524288 ], nSub: 3, probeSamples: 48, maxSteps: 110, maxStepsRefl: 70, stepScale: 1.1, auroraScale: 0.5, reflScale: 0.4, mwW: 2048 },
-	{ NX: 512, NY: 96, NZ: 160, electrons: 1048576, maxElectrons: 2097152, presets: [ 262144, 524288, 1048576, 2097152 ], nSub: 3, probeSamples: 64, maxSteps: 170, maxStepsRefl: 110, stepScale: 1.0, auroraScale: 0.5, reflScale: 0.5, mwW: 2048 },
+	{ NX: 256, NY: 48, NZ: 64, electrons: 16384, maxElectrons: 32768, presets: [ 8192, 16384, 32768 ], nSub: 4, probeSamples: 24, maxSteps: 56, maxStepsRefl: 40, stepScale: 1.25, auroraScale: 0.3, reflScale: 0.3, mwW: 512, mwOct: 3 },
+	{ NX: 384, NY: 72, NZ: 112, electrons: 262144, maxElectrons: 524288, presets: [ 131072, 262144, 524288 ], nSub: 3, probeSamples: 48, maxSteps: 110, maxStepsRefl: 70, stepScale: 1.1, auroraScale: 0.5, reflScale: 0.4, mwW: 2048, mwOct: 5 },
+	{ NX: 512, NY: 96, NZ: 160, electrons: 1048576, maxElectrons: 2097152, presets: [ 262144, 524288, 1048576, 2097152 ], nSub: 3, probeSamples: 64, maxSteps: 170, maxStepsRefl: 110, stepScale: 1.0, auroraScale: 0.5, reflScale: 0.5, mwW: 2048, mwOct: 5 },
 ];
 
 const TAU_FAST = 0.55; // s — prompt + O(¹S) (0.7 s in nature)
@@ -38,6 +38,9 @@ export default {
 	async create( ctx ) {
 
 		const { renderer, params } = ctx;
+		const DBG = params.has( 'adebug' );
+		const T0 = performance.now();
+		const log = ( m ) => DBG && console.warn( `[aurora ${( ( performance.now() - T0 ) / 1000 ).toFixed( 1 )}s] ${m}` );
 		const tier = Math.max( 0, Math.min( 2, ctx.tier ) );
 		const cfg = { ...TIERS[ tier ] };
 		if ( params.has( 'electrons' ) ) cfg.electrons = Math.min( cfg.maxElectrons, parseInt( params.get( 'electrons' ) ) );
@@ -57,11 +60,13 @@ export default {
 
 		// ── simulation + sky + landscape ──
 		const emission = createEmission();
+		log( 'start' );
 		const sim = new AuroraSim( renderer, cfg );
 		sim.buildProbe( emission.emit );
 		const sky = createSky( renderer, sim, emission, cfg, auroraRT );
 		const land = createLandscape( { tier, sim, sky, reflRT, eyeY } );
 		scene.add( sky.skyMain, sky.skyRefl, land.group );
+		log( 'built' );
 
 		const virtualCam = camera.clone();
 
@@ -287,7 +292,9 @@ export default {
 
 		// ── prewarm: start already mid-display, with an onset in progress ──
 		await sim.init();
+		log( 'sim init' );
 		await sky.init();
+		log( 'sky init' );
 		triggerSubstorm( - 16, 30 );
 		blobs.forEach( ( b ) => b.age === 0 && ( b.age = 0.6 ) );
 		{
@@ -310,6 +317,12 @@ export default {
 				sim.u.lightK.value = i === 0 ? 1 : 0.3;
 				sim.u.volNorm.value = VOL_NORM;
 				sim.step();
+				if ( DBG && ( i < 2 || i === nPre - 1 ) ) {
+
+					await renderer.computeAsync( sim.probeResolve );
+					log( 'prewarm ' + i );
+
+				}
 
 			}
 
@@ -377,6 +390,7 @@ export default {
 		const update = ( dt, t ) => {
 
 			frame ++;
+			if ( DBG && frame < 110 ) log( 'frame ' + frame );
 			const dts = Math.min( dt, 1 / 20 );
 			simTime += dts * S.speed * ( 0.55 + 0.55 * S.activity );
 			const subDt = dts * Math.max( 0.25, S.speed );

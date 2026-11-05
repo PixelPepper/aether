@@ -66,8 +66,8 @@ export function createSky( renderer, sim, emission, cfg, auroraRT ) {
 		const c = vec3( cos( lat ).mul( sin( lon ) ), sin( lat ), cos( lat ).mul( cos( lon ) ) ).toVar();
 		const b = asin( clamp( dot( c, vec3( NGP.x, NGP.y, NGP.z ) ), - 1, 1 ) ).toVar();
 		const l = atan( dot( c, vec3( GY.x, GY.y, GY.z ) ), dot( c, vec3( GC.x, GC.y, GC.z ) ) ).toVar();
-		const n1 = mx_fractal_noise_float( c.mul( 5.0 ), 5, 2.0, 0.55 );
-		const n2 = mx_fractal_noise_float( c.mul( 13.0 ).add( 3.1 ), 4, 2.1, 0.5 );
+		const n1 = mx_fractal_noise_float( c.mul( 5.0 ), cfg.mwOct, 2.0, 0.55 );
+		const n2 = mx_fractal_noise_float( c.mul( 13.0 ).add( 3.1 ), cfg.mwOct - 1, 2.1, 0.5 );
 		const thin = exp( b.div( 0.085 ).pow( 2 ).negate() );
 		const disc = exp( b.div( 0.16 ).pow( 2 ).negate() ).mul( 0.7 ).add( exp( b.div( 0.42 ).pow( 2 ).negate() ).mul( 0.3 ) );
 		const lonW = cos( l ).mul( 0.5 ).add( 0.6 ).max( 0.15 );
@@ -75,7 +75,7 @@ export function createSky( renderer, sim, emission, cfg, auroraRT ) {
 		const clouds = n1.mul( 0.8 ).add( 0.85 ).max( 0 ).mul( n2.mul( 0.35 ).add( 1 ) );
 		const glow = disc.mul( lonW ).mul( clouds ).add( bulge.mul( 1.6 ) ).toVar();
 		// dust: the Great Rift and filamentary lanes hugging the plane
-		const dust = smoothstep( - 0.05, 0.45, mx_fractal_noise_float( c.mul( 8.0 ).add( 11.7 ), 5, 2.0, 0.55 ).add( thin.mul( 0.25 ) ) ).mul( exp( b.div( 0.11 ).pow( 2 ).negate() ) );
+		const dust = smoothstep( - 0.05, 0.45, mx_fractal_noise_float( c.mul( 8.0 ).add( 11.7 ), cfg.mwOct, 2.0, 0.55 ).add( thin.mul( 0.25 ) ) ).mul( exp( b.div( 0.11 ).pow( 2 ).negate() ) );
 		const ext = float( 1 ).sub( dust.mul( 0.82 ) );
 		const warm = vec3( 1.0, 0.82, 0.62 ), cool = vec3( 0.78, 0.86, 1.0 );
 		const col = mix( cool, warm, clamp( bulge.mul( 1.5 ).add( dust.mul( 0.5 ) ), 0, 1 ) ).mul( glow ).mul( ext );
