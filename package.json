@@ -1,0 +1,19 @@
+{
+  "name": "aether",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "shot": "node tools/shot.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "three": "^0.186.1",
+    "vite": "^6.4.5"
+  },
+  "type": "module"
+}

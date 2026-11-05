@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<link rel="icon" href="data:,">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<title>Aether</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+	<canvas id="gl"></canvas>
+
+	<div id="hud">
+		<header id="brand">
+			<div class="mark">AETHER</div>
+			<div class="tag">real-time WebGPU cosmology</div>
+		</header>
+
+		<section id="chapter">
+			<div class="num" id="ch-num">01</div>
+			<h1 id="ch-title">—</h1>
+			<p id="ch-sub"></p>
+		</section>
+
+		<nav id="chapters"></nav>
+
+		<aside id="stats">
+			<div><span>backend</span><b id="st-backend">—</b></div>
+			<div><span>fps</span><b id="st-fps">—</b></div>
+			<div><span>res</span><b id="st-res">—</b></div>
+			<div id="st-extra"></div>
+		</aside>
+
+		<div id="hint">drag to orbit · scroll to zoom · <kbd>←</kbd><kbd>→</kbd> chapters · <kbd>H</kbd> hide UI · <kbd>G</kbd> controls</div>
+	</div>
+
+	<div id="fade"></div>
+	<div id="boot">
+		<div class="mark">AETHER</div>
+		<div id="boot-msg">initialising GPU…</div>
+		<button id="enter" hidden>enter</button>
+	</div>
+
+	<script type="module" src="./src/main.js"></script>
+</body>
+</html>
