@@ -5,6 +5,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import GUI from 'three/addons/libs/lil-gui.module.min.js';
 import { chapters } from './scenes/index.js';
 import { Score } from './core/audio.js';
+import { showFallback } from './fallback.js';
+import { watchDeviceLoss, showChapterNotice, hideChapterNotice } from './recovery.js';
 
 const $ = ( id ) => document.getElementById( id );
 const params = new URLSearchParams( location.search );
@@ -17,7 +19,7 @@ const canvas = $( 'gl' );
 
 if ( ! navigator.gpu ) {
 
-	$( 'boot-msg' ).innerHTML = 'Aether needs <b>WebGPU</b>.<br>Use a recent Chrome, Edge, Safari 26+ or Firefox 141+ on a GPU-equipped device.';
+	showFallback( 'no-webgpu' );
 	throw new Error( 'WebGPU unavailable' );
 
 }
@@ -36,17 +38,19 @@ try {
 
 } catch ( e ) {
 
-	$( 'boot-msg' ).textContent = 'GPU init failed: ' + e.message;
+	showFallback( 'init-failed', e.message );
 	throw e;
 
 }
 
 if ( ! renderer.backend.isWebGPUBackend ) {
 
-	$( 'boot-msg' ).innerHTML = 'WebGPU adapter unavailable — this experience relies on compute shaders.';
+	showFallback( 'no-adapter' );
 	throw new Error( 'not WebGPU backend' );
 
 }
+
+watchDeviceLoss( renderer, { shot: SHOT, onLost: () => renderer.setAnimationLoop( null ) } );
 
 renderer.toneMapping = THREE.AgXToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -200,6 +204,7 @@ async function goTo( index ) {
 	index = ( index + chapters.length ) % chapters.length;
 	if ( switching || index === currentIndex ) return;
 	switching = true;
+	hideChapterNotice();
 
 	$( 'fade' ).classList.remove( 'clear' );
 	$( 'chapter' ).classList.add( 'swap' );
@@ -246,7 +251,17 @@ async function goTo( index ) {
 		$( 'boot-msg' ).textContent = `chapter ${meta.id} failed: ${e.message}`;
 		window.__error = String( e && e.stack || e );
 		switching = false;
-		throw e;
+		if ( SHOT ) throw e;
+		// keep the app alive: mark this chapter as current-but-empty and offer the next one
+		folder.destroy();
+		currentIndex = index;
+		$( 'ch-title' ).textContent = meta.label;
+		$( 'ch-sub' ).textContent = '';
+		[ ...nav.children ].forEach( ( b, i ) => b.classList.toggle( 'active', i === index ) );
+		showChapterNotice( meta.label, e, () => goTo( index + 1 ) );
+		$( 'chapter' ).classList.remove( 'swap' );
+		$( 'fade' ).classList.add( 'clear' );
+		return;
 
 	}
 
@@ -396,7 +411,7 @@ async function tick() {
 	clock.last = now;
 	if ( SHOT ) dt = 1 / 60;
 
-	if ( current && ! switching ) {
+	if ( current && ! switching && ! current.failed ) try {
 
 		pointer.velocity.subVectors( pointer.ndc, pointer.prevNdc ).divideScalar( Math.max( dt, 1e-4 ) );
 		pointer.prevNdc.copy( pointer.ndc );
@@ -420,6 +435,14 @@ async function tick() {
 		}
 
 		frame ++;
+
+	} catch ( e ) {
+
+		// one broken chapter must not take the whole app down: freeze it and offer the next one
+		console.error( `chapter ${current.meta.id} update failed`, e );
+		window.__error = String( e && e.stack || e );
+		current.failed = true;
+		showChapterNotice( current.mod.title || current.meta.label, e, () => goTo( currentIndex + 1 ) );
 
 	}
 
