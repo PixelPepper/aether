@@ -25,6 +25,18 @@ export default {
 	async create( ctx ) {
 
 		const { renderer, camera, controls, pointer } = ctx;
+		const DBG = ctx.params.has( 'odebug' );
+		let dbgT = performance.now();
+		const dbg = async ( label ) => {
+
+			if ( ! DBG ) return;
+			await renderer.backend.device?.queue.onSubmittedWorkDone();
+			const now = performance.now();
+			console.log( `[ocean] ${label}: ${( now - dbgT ).toFixed( 0 )} ms` );
+			dbgT = now;
+
+		};
+
 		const scene = new THREE.Scene(); // everything is drawn by our own passes + the analytic composite
 
 		// ── shared uniforms (survive simulation rebuilds) ──
@@ -38,7 +50,7 @@ export default {
 			ptrRadius: uniform( 3 ), ptrStrength: uniform( 0 ), ptrRange: uniform( new THREE.Vector2() ),
 			// render
 			glow: uniform( 1 ), absorb: uniform( 1 ), radiusMul: uniform( 0.78 ), smoothing: uniform( 3.0 ),
-			pixAngle: uniform( 0.002 ), time: uniform( 0 ),
+			pixAngle: uniform( 0.002 ), time: uniform( 0 ), pool: uniform( 0.5 ),
 		};
 
 		const params = {
@@ -54,6 +66,7 @@ export default {
 
 		// ── environment + fluid renderer ──
 		const envRT = bakeEnvironment( renderer, ctx.tier === 0 ? 1024 : 2048 );
+		await dbg( 'env bake' );
 		const fluid = new FluidRenderer( renderer, camera, U, envRT, {
 			fluidScale: ctx.tier === 2 ? 1 : 1,
 			thickScale: 0.5,
@@ -112,6 +125,7 @@ export default {
 
 		let gMag = 0.003;
 		await build( params.preset );
+		await dbg( 'sim build + compile' );
 
 		// ── camera ──
 		camera.fov = 40;
@@ -219,6 +233,19 @@ export default {
 
 			update( dt, t ) {
 
+				if ( DBG ) {
+
+					const fi = ( this._fi = ( this._fi || 0 ) + 1 );
+					renderer.backend.device?.queue.onSubmittedWorkDone().then( () => {
+
+						const now = performance.now();
+						console.log( `[ocean] gpu frame ${fi} done +${( now - dbgT ).toFixed( 0 )} ms` );
+						dbgT = now;
+
+					} );
+
+				}
+
 				clockT = t;
 				U.time.value = t;
 				if ( ! sim ) return;
@@ -304,7 +331,7 @@ export default {
 				// bioluminescent ambient level (floor pool) follows activity
 				pulse *= Math.exp( - dt * 0.8 );
 				glowLevel = THREE.MathUtils.lerp( glowLevel, 0.45 + 0.5 * pulse, 1 - Math.exp( - dt * 3 ) );
-				U.glow.value = params.glow * glowLevel / 0.6;
+				U.pool.value = params.glow * glowLevel;
 
 				// ── fluid passes into our own targets (composite happens in the post chain) ──
 				fluid.render();

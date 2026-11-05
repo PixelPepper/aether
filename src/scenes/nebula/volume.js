@@ -32,6 +32,9 @@ export const MAX_USER_STARS = 3;
 
 const v3 = ( a ) => vec3( a[ 0 ], a[ 1 ], a[ 2 ] );
 
+// smoothstep with reversed edges (a > b): WGSL/SPIR-V leave smoothstep undefined when low >= high
+export const ssr = ( a, b, x ) => float( 1 ).sub( smoothstep( b, a, x ) );
+
 const smin = ( a, b, k ) => {
 
 	const h = max( float( k ).sub( abs( a.sub( b ) ) ), 0.0 ).div( k );
@@ -116,7 +119,7 @@ export class NebulaVolume {
 
 		// bottom molecular cloud bank, rising toward the back
 		const hB = float( - 4.6 ).add( fbm( vec3( pw.x.mul( 0.21 ), 1.7, pw.z.mul( 0.21 ) ), 3 ).mul( 1.5 ) )
-			.add( smoothstep( - 1.0, - 6.0, pw.z ).mul( 1.6 ) );
+			.add( ssr( - 1.0, - 6.0, pw.z ).mul( 1.6 ) );
 		const dBank = pw.y.sub( hB ).mul( 0.75 );
 
 		// turbulent erosion of every surface + striations along the pillars
@@ -124,13 +127,13 @@ export class NebulaVolume {
 		const str = ridged( pw.mul( vec3( 0.95, 0.32, 0.95 ) ).add( 2.0 ), 3 );
 		const d = smin( dP, dBank, 1.3 ).add( n1.mul( 0.62 ) ).sub( str.mul( 0.28 ) ).toVar();
 
-		const core = smoothstep( 0.3, - 0.8, d ).toVar();
+		const core = ssr( 0.3, - 0.8, d ).toVar();
 		const rhoCore = core.mul( n1.mul( 0.55 ).add( 1.05 ) ).mul( 1.7 );
 
 		// back wall: a lumpy sheet of gas behind the cluster, lit face-on
 		const zW = float( - 5.25 ).add( fbm( vec3( pw.x.mul( 0.17 ), pw.y.mul( 0.17 ), 3.1 ), 3 ).mul( 1.1 ) );
 		const dWall = abs( pw.z.sub( zW ) ).sub( 0.75 ).add( n1.mul( 0.7 ) );
-		const wall = smoothstep( 0.45, - 0.55, dWall ).mul( n1.mul( 0.4 ).add( 0.6 ) ).mul( 0.75 );
+		const wall = ssr( 0.45, - 0.55, dWall ).mul( n1.mul( 0.4 ).add( 0.6 ) ).mul( 0.75 );
 
 		// diffuse HII gas + ridged filaments/sheets (where light shafts show up)
 		const nd = fbm( p.mul( 0.21 ).add( w.mul( 0.75 ) ).add( vec3( 0, 0, 7.7 ) ), 4 ).mul( 0.5 ).add( 0.5 ).toVar();

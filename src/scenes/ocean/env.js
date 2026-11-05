@@ -176,14 +176,14 @@ export function makeBackground( E, U, withStars ) {
 					const n = normalize( Q.sub( orbC ) );
 					const rim = pow( float( 1 ).sub( abs( dot( n, rr ) ) ), 3.0 );
 					const lower = smoothstep( 0.3, - 0.6, n.y );
-					refl.assign( mix( refl.mul( 0.4 ), vec3( 0.002, 0.018, 0.024 ).add( glowC.mul( U.glow ).mul( 0.35 ).mul( lower ) ), 0.85 ).add( vec3( 0.25, 0.4, 0.6 ).mul( rim ).mul( 0.05 ) ) );
+					refl.assign( mix( refl.mul( 0.4 ), vec3( 0.002, 0.018, 0.024 ).add( glowC.mul( U.pool ).mul( 0.35 ).mul( lower ) ), 0.85 ).add( vec3( 0.25, 0.4, 0.6 ).mul( rim ).mul( 0.05 ) ) );
 
 				} );
 
 				// diffuse: dark obsidian + bioluminescent pool + contact shadow
-				const pool = glowC.mul( U.glow ).mul( exp( r2.mul( - 1.3 ) ).mul( 0.20 ).add( exp( r2.mul( - 6.0 ) ).mul( 0.25 ) ) );
+				const pool = glowC.mul( U.pool ).mul( exp( r2.mul( - 1.3 ) ).mul( 0.20 ).add( exp( r2.mul( - 6.0 ) ).mul( 0.25 ) ) );
 				const caust = mx_noise_float( vec3( P.x.mul( 6.0 ), P.z.mul( 6.0 ), U.time.mul( 0.4 ) ) );
-				const caustics = glowC.mul( U.glow ).mul( pow( float( 1 ).sub( abs( caust ) ), 8.0 ) ).mul( exp( r2.mul( - 2.5 ) ) ).mul( 0.35 );
+				const caustics = glowC.mul( U.pool ).mul( pow( float( 1 ).sub( abs( caust ) ), 8.0 ) ).mul( exp( r2.mul( - 2.5 ) ) ).mul( 0.35 );
 				const ao = float( 1 ).sub( exp( r2.mul( - 5.0 ) ).mul( 0.8 ) );
 				const base = vec3( 0.0018, 0.0022, 0.0030 );
 				const rings = smoothstep( 0.92, 1.0, sin( length( rel ).mul( 18.0 ).sub( U.time.mul( 0.6 ) ) ) ).mul( exp( r2.mul( - 0.35 ) ) ).mul( 0.0035 );

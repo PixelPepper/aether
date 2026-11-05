@@ -371,7 +371,11 @@ export class MPMFluid {
 				const n = rel.div( dist );
 				p.assign( cvec.add( n.mul( Rp ) ) );
 				const vn = dot( v, n );
-				If( vn.greaterThan( 0 ), () => v.subAssign( n.mul( vn ) ) );
+				If( vn.greaterThan( 0 ), () => {
+
+					v.subAssign( n.mul( vn ) );
+
+				} );
 
 			} );
 			p.assign( clamp( p, vec3( 1.6 ), vec3( G - 2.6 ) ) );

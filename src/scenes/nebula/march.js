@@ -5,7 +5,7 @@ import {
 	length, normalize, smoothstep, mix, max, min, exp, abs, dot, clamp, pow, sqrt, fract, sin, select, inverseSqrt,
 	interleavedGradientNoise,
 } from 'three/tsl';
-import { CLUSTER, JETS, MAX_USER_STARS } from './volume.js';
+import { CLUSTER, JETS, MAX_USER_STARS, ssr } from './volume.js';
 
 const v3 = ( a ) => vec3( a[ 0 ], a[ 1 ], a[ 2 ] );
 
@@ -113,7 +113,7 @@ export function buildMarchMaterial( vol, U ) {
 						const sp = U.starPos[ k ], sa = U.starPar[ k ];
 						const lvk = sp.xyz.sub( p );
 						const r2k = dot( lvk, lvk );
-						const win = smoothstep( sa.z.mul( sa.z ), sa.z.mul( sa.z ).mul( 0.3 ), r2k );
+						const win = ssr( sa.z.mul( sa.z ), sa.z.mul( sa.z ).mul( 0.3 ), r2k );
 						const dk = sa.x.mul( win ).div( r2k.mul( 0.9 ).add( 0.06 ) ).toVar();
 						const ck = dot( rd, lvk.mul( inverseSqrt( r2k.add( 1e-6 ) ) ) );
 						const tk = tauU[ k ].mul( kEx );
@@ -146,7 +146,7 @@ export function buildMarchMaterial( vol, U ) {
 						const w = as.mul( 0.05 / J.len ).add( 0.05 );
 						const radial = exp( rr2.div( w.mul( w ) ).negate() );
 						const knots = pow( sin( as.mul( 6.5 ).sub( U.time.mul( 0.9 ) ).add( j * 2.1 ) ).mul( 0.5 ).add( 0.5 ), 5.0 ).mul( 1.8 ).add( 0.25 );
-						const body = radial.mul( knots ).mul( smoothstep( J.len, J.len * 0.55, as ) ).mul( smoothstep( 0.0, 0.15, as ) );
+						const body = radial.mul( knots ).mul( ssr( J.len, J.len * 0.55, as ) ).mul( smoothstep( 0.0, 0.15, as ) );
 						const td = as.sub( J.len );
 						const bow = exp( td.mul( td ).add( rr2 ).div( 0.05 ).negate() );
 						em.addAssign( cJet.mul( body.add( bow.mul( 0.7 ) ) ).mul( U.emission ).mul( U.jets ) );

@@ -1,0 +1,557 @@
+// Split-step Fourier solver for the 2D time-dependent Schrödinger equation, entirely in compute shaders.
+//
+//   i ∂ψ/∂t = −½∇²ψ + (V − iW)ψ            (ħ = m = 1, unit square domain, N×N cells)
+//
+// One Strang step:  ψ ← e^{−i(V−iW)dt/2} · F⁻¹[ e^{−i k² dt/2} · F[ e^{−i(V−iW)dt/2} ψ ] ]
+//
+// The 2D FFT is separable. Every 1D transform of length N runs inside ONE workgroup (N/2 invocations, one radix-2
+// butterfly each per stage) on a row or column held in workgroup shared memory, with a workgroupBarrier between the
+// log2(N) stages. Forward transforms are decimation-in-frequency (natural order in → bit-reversed out) and inverse
+// transforms are decimation-in-time (bit-reversed in → natural out), so no bit-reversal permutation is ever executed:
+// k-space lives in bit-reversed order and the kinetic phase table is simply stored permuted.
+//
+// Kernels are fused so a full step costs two dispatches:
+//   row  pass : [row IFFT] → potential phase/absorption → [row FFT]
+//   col  pass : col FFT → kinetic phase (·1/N² normalisation folded in) → col IFFT
+// A frame of S steps is  rowFirst, col, (rowMid, col)×(S−1), rowLast  =  2S+1 dispatches in one compute pass.
+// Each workgroup owns exactly one row/column, so all transforms are done in place on a single storage buffer.
+
+import * as THREE from 'three/webgpu';
+import {
+	Fn, If, Loop, float, uint, vec2, vec4, uvec2, cos, sin, exp, dot, pow, min, max, clamp, sqrt, atan, length, smoothstep, select,
+	instanceIndex, localId, workgroupId, workgroupArray, workgroupBarrier, instancedArray, storage, uniform, textureStore, hash, atomicAdd,
+} from 'three/tsl';
+
+const cmul = ( a, b ) => vec2( a.x.mul( b.x ).sub( a.y.mul( b.y ) ), a.x.mul( b.y ).add( a.y.mul( b.x ) ) );
+
+function bitrev( i, bits ) {
+
+	let r = 0;
+	for ( let b = 0; b < bits; b ++ ) {
+
+		r = ( r << 1 ) | ( i & 1 );
+		i >>= 1;
+
+	}
+
+	return r;
+
+}
+
+export class SchrodingerSolver {
+
+	constructor( renderer, { N, hits = 8192, mist = 4096 } ) {
+
+		this.renderer = renderer;
+		this.N = N;
+		this.H = N >> 1;
+		this.L = Math.log2( N );
+		this.dx = 1 / N;
+		this.MAX_HITS = hits;
+		this.MIST = mist;
+
+		const NN = N * N;
+		this.psi = instancedArray( NN, 'vec2' ).setName( 'psi' );
+		this.potArray = new Float32Array( NN * 2 ); // (V, W) per cell
+		this.pot = instancedArray( this.potArray, 'vec2' ).setName( 'pot' );
+		this.kArray = new Float32Array( N * 2 );
+		this.ktab = instancedArray( this.kArray, 'vec2' ).setName( 'ktab' );
+		this.rowSum = instancedArray( N, 'float' ).setName( 'rowSum' );
+
+		// detector / Born-rule sampling
+		this.counterAttr = new THREE.StorageBufferAttribute( new Uint32Array( 4 ), 1 );
+		this.counter = storage( this.counterAttr, 'uint', 4 ).toAtomic();
+		this.rng = instancedArray( new Uint32Array( N ).map( ( _, i ) => ( i * 2654435761 ) >>> 0 ), 'uint' ).setName( 'rng' );
+		const hitInit = new Float32Array( hits * 4 );
+		for ( let i = 0; i < hits; i ++ ) hitInit[ i * 4 + 2 ] = - 1e9;
+		this.hits = instancedArray( hitInit, 'vec4' ).setName( 'hits' );
+
+		// Bohmian mist particles: (u, v, age, height-offset)
+		const mistInit = new Float32Array( mist * 4 );
+		for ( let i = 0; i < mist; i ++ ) {
+
+			mistInit[ i * 4 ] = Math.random(); mistInit[ i * 4 + 1 ] = Math.random();
+			mistInit[ i * 4 + 2 ] = 1 + Math.random(); mistInit[ i * 4 + 3 ] = Math.random();
+
+		}
+
+		this.mist = instancedArray( mistInit, 'vec4' ).setName( 'mist' );
+
+		// display field: (Re ψ, Im ψ, height, V/Vref), hardware-filtered in the materials
+		this.field = new THREE.StorageTexture( N, N );
+		this.field.type = THREE.HalfFloatType;
+		this.field.format = THREE.RGBAFormat;
+		this.field.minFilter = THREE.LinearFilter;
+		this.field.magFilter = THREE.LinearFilter;
+		this.field.generateMipmaps = false;
+		this.field.wrapS = this.field.wrapT = THREE.ClampToEdgeWrapping;
+
+		this.u = {
+			half: uniform( 0 ), // dt/2
+			full: uniform( 0 ), // dt
+			frameTau: uniform( 0 ), // sim time advanced this frame (detector + mist)
+			realDt: uniform( 1 / 60 ),
+			time: uniform( 0 ), // display clock for hit flashes
+			rate: uniform( 900 ), // detections per unit of absorbed probability
+			detX: uniform( 0.9 ), // detector strip starts here (domain x)
+			heightScale: uniform( 1.25 ),
+			rhoRef: uniform( 1 / ( 2 * Math.PI * 0.05 * 0.05 ) ),
+			vRef: uniform( 1e5 ),
+			// packet
+			c: uniform( new THREE.Vector2( 0.15, 0.5 ) ),
+			k: uniform( new THREE.Vector2( 150, 0 ) ),
+			sigma: uniform( 0.05 ),
+			// wall painting (capsule a→b)
+			pa: uniform( new THREE.Vector2() ),
+			pb: uniform( new THREE.Vector2() ),
+			pr: uniform( 0.012 ),
+			pv: uniform( 1e5 ),
+			mistOn: uniform( 1 ),
+			frame: uniform( 0, 'uint' ),
+		};
+
+		this.dt = 1e-5;
+		this._lists = new Map();
+		this._build();
+
+	}
+
+	// ───────────────────────── kernels ─────────────────────────
+
+	_stage( sh, t, s, sign, dif ) {
+
+		const half = 1 << s;
+		const k = t.bitAnd( half - 1 );
+		const j0 = t.mul( 2 ).sub( k ).toVar();
+		const j1 = j0.add( half ).toVar();
+		const a = sh.element( j0 ).toVar();
+		const b = sh.element( j1 ).toVar();
+
+		if ( s === 0 ) {
+
+			sh.element( j0 ).assign( a.add( b ) );
+			sh.element( j1 ).assign( a.sub( b ) );
+
+		} else {
+
+			const ang = k.toFloat().mul( sign * Math.PI / half );
+			const w = vec2( cos( ang ), sin( ang ) ).toVar();
+			if ( dif ) {
+
+				sh.element( j0 ).assign( a.add( b ) );
+				sh.element( j1 ).assign( cmul( a.sub( b ), w ) );
+
+			} else {
+
+				const bw = cmul( b, w ).toVar();
+				sh.element( j0 ).assign( a.add( bw ) );
+				sh.element( j1 ).assign( a.sub( bw ) );
+
+			}
+
+		}
+
+		workgroupBarrier();
+
+	}
+
+	_dif( sh, t, sign ) {
+
+		for ( let s = this.L - 1; s >= 0; s -- ) this._stage( sh, t, s, sign, true );
+
+	}
+
+	_dit( sh, t, sign ) {
+
+		for ( let s = 0; s < this.L; s ++ ) this._stage( sh, t, s, sign, false );
+
+	}
+
+	_potFactor( g, tau ) {
+
+		const vw = this.pot.element( g ).toVar();
+		const ph = vw.x.mul( tau );
+		return vec2( cos( ph ), sin( ph ).negate() ).mul( exp( vw.y.mul( tau ).negate() ) );
+
+	}
+
+	_rowKernel( mode ) {
+
+		const { N, H, psi } = this;
+		const sh = workgroupArray( 'vec2', N );
+		const u = this.u;
+
+		return Fn( () => {
+
+			const t = localId.x;
+			const base = workgroupId.x.mul( N );
+			const i1 = t.add( H );
+			const g0 = base.add( t ).toVar(), g1 = base.add( i1 ).toVar();
+
+			if ( mode === 'first' ) {
+
+				sh.element( t ).assign( cmul( psi.element( g0 ), this._potFactor( g0, u.half ) ) );
+				sh.element( i1 ).assign( cmul( psi.element( g1 ), this._potFactor( g1, u.half ) ) );
+
+			} else {
+
+				sh.element( t ).assign( psi.element( g0 ) );
+				sh.element( i1 ).assign( psi.element( g1 ) );
+
+			}
+
+			workgroupBarrier();
+
+			if ( mode !== 'first' ) {
+
+				this._dit( sh, t, + 1 );
+				const tau = mode === 'mid' ? u.full : u.half;
+				sh.element( t ).assign( cmul( sh.element( t ), this._potFactor( g0, tau ) ) );
+				sh.element( i1 ).assign( cmul( sh.element( i1 ), this._potFactor( g1, tau ) ) );
+				workgroupBarrier();
+
+			}
+
+			if ( mode !== 'last' ) this._dif( sh, t, - 1 );
+
+			psi.element( g0 ).assign( sh.element( t ) );
+			psi.element( g1 ).assign( sh.element( i1 ) );
+
+		} )().compute( N * H, [ H ] ).setName( 'tdse-row-' + mode );
+
+	}
+
+	_colKernel() {
+
+		const { N, H, psi, ktab } = this;
+		const sh = workgroupArray( 'vec2', N );
+
+		return Fn( () => {
+
+			const t = localId.x;
+			const col = workgroupId.x;
+			const i1 = t.add( H );
+			const g0 = t.mul( N ).add( col ).toVar(), g1 = i1.mul( N ).add( col ).toVar();
+
+			sh.element( t ).assign( psi.element( g0 ) );
+			sh.element( i1 ).assign( psi.element( g1 ) );
+			workgroupBarrier();
+
+			this._dif( sh, t, - 1 );
+
+			// kinetic propagator, separable: e^{-i(kx²+ky²)dt/2}/N² = f[kx]·f[ky]   (tables stored in bit-reversed order)
+			const kc = ktab.element( col ).toVar();
+			sh.element( t ).assign( cmul( sh.element( t ), cmul( kc, ktab.element( t ) ) ) );
+			sh.element( i1 ).assign( cmul( sh.element( i1 ), cmul( kc, ktab.element( i1 ) ) ) );
+			workgroupBarrier();
+
+			this._dit( sh, t, + 1 );
+
+			psi.element( g0 ).assign( sh.element( t ) );
+			psi.element( g1 ).assign( sh.element( i1 ) );
+
+		} )().compute( N * H, [ H ] ).setName( 'tdse-col' );
+
+	}
+
+	_build() {
+
+		const { N, psi, pot, u } = this;
+		const NN = N * N;
+		const dx = this.dx;
+
+		this.rowFirst = this._rowKernel( 'first' );
+		this.rowMid = this._rowKernel( 'mid' );
+		this.rowLast = this._rowKernel( 'last' );
+		this.col = this._colKernel();
+
+		// Gaussian wavepacket  ψ = (2πσ²)^{-1/2} exp(−|r−c|²/4σ²) exp(i k·(r−c))
+		this.initPacket = Fn( () => {
+
+			const x = instanceIndex.mod( N ), y = instanceIndex.div( N );
+			const p = vec2( x.toFloat(), y.toFloat() ).mul( dx );
+			const d = p.sub( u.c ).toVar();
+			const s2 = u.sigma.mul( u.sigma );
+			const amp = exp( dot( d, d ).div( s2.mul( - 4 ) ) ).div( sqrt( s2.mul( 2 * Math.PI ) ) );
+			const ph = dot( u.k, d );
+			// do not start inside a wall
+			const inWall = smoothstep( 0.0, 0.5, pot.element( instanceIndex ).x.div( u.vRef ) );
+			psi.element( instanceIndex ).assign( vec2( cos( ph ), sin( ph ) ).mul( amp ).mul( float( 1 ).sub( inWall ) ) );
+
+		} )().compute( NN, [ 64 ] ).setName( 'tdse-packet' );
+
+		this.zero = Fn( () => {
+
+			psi.element( instanceIndex ).assign( vec2( 0 ) );
+
+		} )().compute( NN, [ 64 ] );
+
+		// norm: per-row Σ|ψ|²
+		this.normPass = Fn( () => {
+
+			const acc = float( 0 ).toVar();
+			const base = instanceIndex.mul( N );
+			Loop( { start: uint( 0 ), end: uint( N ), type: 'uint', condition: '<' }, ( { i } ) => {
+
+				const p = psi.element( base.add( i ) );
+				acc.addAssign( dot( p, p ) );
+
+			} );
+			this.rowSum.element( instanceIndex ).assign( acc.mul( dx * dx ) );
+
+		} )().compute( N, [ 64 ] ).setName( 'tdse-norm' );
+
+		// display field
+		this.derive = Fn( () => {
+
+			const x = instanceIndex.mod( N ), y = instanceIndex.div( N );
+			const p = psi.element( instanceIndex ).toVar();
+			const rho = dot( p, p );
+			const h = pow( rho.div( u.rhoRef ).add( 1e-9 ), 0.55 ).mul( u.heightScale );
+			const v = pot.element( instanceIndex ).x.div( u.vRef );
+			textureStore( this.field, uvec2( x, y ), vec4( p.x, p.y, h, v ) ).toWriteOnly();
+
+		} )().compute( NN, [ 64 ] ).setName( 'tdse-field' );
+
+		// wall painting: capsule from pa to pb
+		this.paint = Fn( () => {
+
+			const x = instanceIndex.mod( N ), y = instanceIndex.div( N );
+			const p = vec2( x.toFloat(), y.toFloat() ).mul( dx );
+			const ab = u.pb.sub( u.pa );
+			const hh = clamp( dot( p.sub( u.pa ), ab ).div( max( dot( ab, ab ), 1e-10 ) ), 0, 1 );
+			const d = length( p.sub( u.pa ).sub( ab.mul( hh ) ) );
+			const cov = smoothstep( u.pr.add( dx ), u.pr.sub( dx * 0.5 ), d );
+			const e = pot.element( instanceIndex );
+			e.x.assign( max( e.x, cov.mul( u.pv ) ) );
+
+		} )().compute( NN, [ 64 ] ).setName( 'tdse-paint' );
+
+		this._buildDetector();
+		this._buildMist();
+
+	}
+
+	// Born rule at the far wall: the absorbing layer IS the detector. Probability removed from cell (x,y) during this frame,
+	// (1 − e^{−2WΔt})|ψ|²dx², is summed per row and turned into discrete detection events (Bernoulli trials per row).
+	_buildDetector() {
+
+		const { N, psi, pot, u } = this;
+		const dx = this.dx;
+		const MAXH = this.MAX_HITS;
+		const xs = Math.floor( N * 0.86 );
+
+		this.detect = Fn( () => {
+
+			const y = instanceIndex;
+			const acc = float( 0 ).toVar();
+			Loop( { start: uint( xs ), end: uint( N ), type: 'uint', condition: '<' }, ( { i } ) => {
+
+				const g = y.mul( N ).add( i );
+				const p = psi.element( g );
+				const w = pot.element( g ).y;
+				acc.addAssign( dot( p, p ).mul( float( 1 ).sub( exp( w.mul( u.frameTau ).mul( - 2 ) ) ) ) );
+
+			} );
+			const m = acc.mul( dx * dx ).mul( u.rate ).toVar();
+			const st = this.rng.element( y ).toVar();
+
+			for ( let j = 0; j < 2; j ++ ) {
+
+				st.assign( st.mul( 747796405 ).add( 2891336453 ) );
+				const r = hash( st );
+				If( r.lessThan( m.sub( j ) ), () => {
+
+					const slot = atomicAdd( this.counter.element( 0 ), uint( 1 ) ).toVar();
+					const r2 = hash( st.add( 17 ) ), r3 = hash( st.add( 91 ) );
+					this.hits.element( slot.bitAnd( MAXH - 1 ) ).assign( vec4( y.toFloat().add( r2 ).mul( dx ), r3, u.time, 1 ) );
+
+				} );
+
+			}
+
+			this.rng.element( y ).assign( st );
+
+		} )().compute( N, [ 64 ] ).setName( 'tdse-detect' );
+
+		this.clearHits = Fn( () => {
+
+			this.hits.element( instanceIndex ).assign( vec4( 0, 0, - 1e9, 0 ) );
+
+		} )().compute( MAXH, [ 64 ] );
+
+	}
+
+	// de Broglie–Bohm guidance: v = (ħ/m) ∇arg ψ. Particles sampled from |ψ|² and advected by v stay |ψ|²-distributed
+	// (equivariance), so the mist draws the probability current as luminous streamlines.
+	_buildMist() {
+
+		const { N, psi, u } = this;
+		const dx = this.dx;
+
+		const psiAt = ( ix, iy ) => psi.element( iy.mul( N ).add( ix ) );
+		const rhoAt = ( q ) => {
+
+			const ix = clamp( q.x.mul( N ), 0, N - 1 ).toUint();
+			const iy = clamp( q.y.mul( N ), 0, N - 1 ).toUint();
+			const p = psiAt( ix, iy );
+			return dot( p, p );
+
+		};
+
+		this.mistStep = Fn( () => {
+
+			const st = this.mist.element( instanceIndex ).toVar();
+			const seed = instanceIndex.mul( 7919 ).add( u.frame.mul( 104729 ) ).toVar();
+
+			// advect (2 midpoint-free Euler substeps)
+			for ( let s = 0; s < 2; s ++ ) {
+
+				const ix = clamp( st.x.mul( N ), 1, N - 2 ).toUint();
+				const iy = clamp( st.y.mul( N ), 1, N - 2 ).toUint();
+				const xp = psiAt( ix.add( 1 ), iy ), xm = psiAt( ix.sub( 1 ), iy );
+				const yp = psiAt( ix, iy.add( 1 ) ), ym = psiAt( ix, iy.sub( 1 ) );
+				const cx = cmul( xp, vec2( xm.x, xm.y.negate() ) );
+				const cy = cmul( yp, vec2( ym.x, ym.y.negate() ) );
+				const v = vec2( atan( cx.y, cx.x ), atan( cy.y, cy.x ) ).div( 2 * dx ).toVar();
+				const sp = length( v );
+				v.mulAssign( min( 1, float( 600 ).div( sp.add( 1e-6 ) ) ) );
+				st.xy.addAssign( v.mul( u.frameTau.mul( 0.5 ) ) );
+
+			}
+
+			const life = hash( instanceIndex.add( 12345 ) ).mul( 2.5 ).add( 1.5 );
+			st.z.addAssign( u.realDt.div( life ) );
+
+			const rho = rhoAt( st.xy );
+			const dead = st.z.greaterThanEqual( 1 ).or( rho.lessThan( u.rhoRef.mul( 2e-4 ) ) ).or( st.x.lessThan( 0.01 ) ).or( st.x.greaterThan( 0.99 ) )
+				.or( st.y.lessThan( 0.01 ) ).or( st.y.greaterThan( 0.99 ) );
+
+			If( dead, () => {
+
+				st.z.assign( 2 ); // stays invisible unless a candidate is accepted
+				const found = float( 0 ).toVar();
+				for ( let j = 0; j < 4; j ++ ) {
+
+					If( found.lessThan( 0.5 ), () => {
+
+						const q = vec2( hash( seed.add( j * 3 + 1 ) ), hash( seed.add( j * 3 + 2 ) ) ).mul( 0.96 ).add( 0.02 ).toVar();
+						const acc = rhoAt( q ).div( u.rhoRef.mul( 0.08 ) );
+						If( hash( seed.add( j * 3 + 3 ) ).lessThan( acc ).and( u.mistOn.greaterThan( 0.5 ) ), () => {
+
+							st.xy.assign( q );
+							st.z.assign( hash( seed.add( 77 ) ).mul( 0.1 ) );
+							st.w.assign( hash( seed.add( 78 ) ) );
+							found.assign( 1 );
+
+						} );
+
+					} );
+
+				}
+
+			} );
+
+			this.mist.element( instanceIndex ).assign( st );
+
+		} )().compute( this.MIST, [ 64 ] ).setName( 'tdse-mist' );
+
+	}
+
+	// ───────────────────────── host side ─────────────────────────
+
+	setTimeStep( dt ) {
+
+		const { N, L } = this;
+		this.dt = dt;
+		this.u.half.value = dt / 2;
+		this.u.full.value = dt;
+		for ( let j = 0; j < N; j ++ ) {
+
+			const n = bitrev( j, L );
+			const kk = 2 * Math.PI * ( n < N / 2 ? n : n - N );
+			const ph = - 0.5 * kk * kk * dt;
+			this.kArray[ j * 2 ] = Math.cos( ph ) / N;
+			this.kArray[ j * 2 + 1 ] = Math.sin( ph ) / N;
+
+		}
+
+		this.ktab.value.needsUpdate = true;
+
+	}
+
+	uploadPotential() {
+
+		this.pot.value.needsUpdate = true;
+
+	}
+
+	stepList( steps ) {
+
+		let l = this._lists.get( steps );
+		if ( ! l ) {
+
+			l = [ this.rowFirst ];
+			for ( let s = 0; s < steps; s ++ ) {
+
+				l.push( this.col );
+				l.push( s < steps - 1 ? this.rowMid : this.rowLast );
+
+			}
+
+			this._lists.set( steps, l );
+
+		}
+
+		return l;
+
+	}
+
+	launch( cx, cy, kx, ky, sigma ) {
+
+		this.u.c.value.set( cx, cy );
+		this.u.k.value.set( kx, ky );
+		this.u.sigma.value = sigma;
+		this.renderer.compute( this.initPacket );
+
+	}
+
+	async readNorm() {
+
+		this.renderer.compute( this.normPass );
+		const buf = await this.renderer.getArrayBufferAsync( this.rowSum.value );
+		const a = new Float32Array( buf );
+		let s = 0;
+		for ( let i = 0; i < a.length; i ++ ) s += a[ i ];
+		return s;
+
+	}
+
+	async readHits() {
+
+		const buf = await this.renderer.getArrayBufferAsync( this.counterAttr );
+		return new Uint32Array( buf )[ 0 ];
+
+	}
+
+	resetHits() {
+
+		this.counterAttr.array.fill( 0 );
+		this.counterAttr.needsUpdate = true;
+		this.renderer.compute( this.clearHits );
+
+	}
+
+	dispose() {
+
+		const nodes = [ this.rowFirst, this.rowMid, this.rowLast, this.col, this.initPacket, this.zero, this.normPass, this.derive,
+			this.paint, this.detect, this.clearHits, this.mistStep ];
+		for ( const n of nodes ) n?.dispose?.();
+		for ( const b of [ this.psi, this.pot, this.ktab, this.rowSum, this.rng, this.hits, this.mist ] ) b.value?.dispose?.();
+		this.counterAttr.dispose?.();
+		this.field.dispose();
+		this._lists.clear();
+
+	}
+
+}
