@@ -53,6 +53,71 @@ function portOpen( p ) {
 
 }
 
+// ── capture semaphore: many agents share 4 CPU cores running SwiftShader; allow SLOTS concurrent captures ──
+import { mkdirSync as mk, rmSync, readFileSync as rf, writeFileSync as wf } from 'node:fs';
+const SLOTS = parseInt( process.env.SHOT_SLOTS || '3' );
+let slot = null;
+const waitStart = Date.now();
+while ( slot === null ) {
+
+	for ( let i = 0; i < SLOTS && slot === null; i ++ ) {
+
+		const dir = `/tmp/aether-shot-slot-${i}`;
+		try {
+
+			mk( dir ); wf( dir + '/pid', String( process.pid ) ); slot = dir;
+
+		} catch {
+
+			// stale lock? (owner process gone)
+			try {
+
+				const pid = parseInt( rf( dir + '/pid', 'utf8' ) );
+				try {
+
+					process.kill( pid, 0 );
+
+				} catch {
+
+					rmSync( dir, { recursive: true, force: true } );
+
+				}
+
+			} catch {}
+
+		}
+
+	}
+
+	if ( slot === null ) {
+
+		if ( Date.now() - waitStart > 15 * 60 * 1000 ) {
+
+			console.log( '[slot] waited 15 min for a capture slot, giving up' ); process.exit( 3 );
+
+		}
+
+		await new Promise( ( r ) => setTimeout( r, 1500 ) );
+
+	}
+
+}
+
+if ( Date.now() - waitStart > 3000 ) console.log( `[slot] waited ${( ( Date.now() - waitStart ) / 1000 ).toFixed( 0 )}s for a capture slot` );
+const releaseSlot = () => {
+
+	try {
+
+		rmSync( slot, { recursive: true, force: true } );
+
+	} catch {}
+
+};
+
+process.on( 'exit', releaseSlot );
+process.on( 'SIGINT', () => process.exit( 130 ) );
+process.on( 'SIGTERM', () => process.exit( 143 ) );
+
 let server = null;
 if ( ! ( await portOpen( port ) ) ) {
 

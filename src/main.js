@@ -258,6 +258,7 @@ async function goTo( index ) {
 	$( 'ch-title' ).textContent = mod.title || meta.label;
 	$( 'ch-sub' ).textContent = mod.subtitle || '';
 	[ ...nav.children ].forEach( ( b, i ) => b.classList.toggle( 'active', i === index ) );
+	nav.children[ index ].scrollIntoView( { behavior: SHOT ? 'auto' : 'smooth', inline: 'center', block: 'nearest' } );
 	if ( ! SHOT ) history.replaceState( null, '', '?' + new URLSearchParams( { ...Object.fromEntries( params ), c: meta.id } ) );
 
 	resize();
@@ -481,7 +482,7 @@ if ( SHOT ) {
 
 	// the first chapter is already running behind a translucent veil; entering is also the user gesture audio needs
 	$( 'boot' ).classList.add( 'ready' );
-	$( 'boot-msg' ).textContent = 'Five real-time simulations, computed on your GPU.';
+	$( 'boot-msg' ).textContent = 'Fifteen real-time simulations, from quantum foam to the event horizon, computed live on your GPU.';
 	$( 'enter-row' ).hidden = false;
 	$( 'enter-sound' ).focus();
 	const enter = ( withSound ) => {
