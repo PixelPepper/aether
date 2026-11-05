@@ -148,11 +148,11 @@ export function createClothSim( renderer, opt ) {
 		for ( let s = 0; s < S; s ++ ) {
 
 			const L = opt.hangSheets[ s ];
-			const a0 = new THREE.Vector3( ...L.a ), a1 = new THREE.Vector3( ...L.b );
 			const ia0 = inset, ia1 = N - 1 - inset;
-			const eu = a1.clone().sub( a0 );
-			const chord = eu.length();
-			eu.normalize();
+			const chord = ( ia1 - ia0 ) * spacing * L.gather;
+			const eu = new THREE.Vector3( Math.cos( L.yaw ), 0.06, - Math.sin( L.yaw ) ).normalize();
+			const mid = new THREE.Vector3( ...L.mid );
+			const a0 = mid.clone().addScaledVector( eu, - chord / 2 ), a1 = mid.clone().addScaledVector( eu, chord / 2 );
 			const scaleU = chord / ( ( ia1 - ia0 ) * spacing ); // < 1 → gathered top edge → curtain folds
 			// hanging direction: down, leaning slightly into `lean`
 			const ev = new THREE.Vector3( ...( L.lean || [ 0, 0, 0 ] ) ).add( new THREE.Vector3( 0, - 1, 0 ) );
@@ -191,7 +191,9 @@ export function createClothSim( renderer, opt ) {
 
 				const k = ( s * NN + ja * N + ia ) * 4;
 				const rest = new THREE.Vector3( hang[ k ], hang[ k + 1 ], hang[ k + 2 ] );
-				anchorsJS.push( { sheet: s, ia, ja, base: base.clone(), rest, phase: [ rnd() * TAU, rnd() * TAU, rnd() * TAU ], amp: L.sway ?? 0.3 } );
+				// both anchors of a sheet sway mostly together (keeps the gathered edge slack)
+				const phase = [ ph + ai * 0.5, ph * 1.7 + ai * 0.7, ph * 2.3 + ai * 0.4 ];
+				anchorsJS.push( { sheet: s, ia, ja, base: base.clone(), rest, phase, amp: L.sway ?? 0.25 } );
 				anchorRest.array[ id ].set( rest.x, rest.y, rest.z, 0 );
 				anchorIJ.array[ id ].set( ia, ja, 1, 0 );
 				anchorPos.array[ id ].set( base.x, base.y, base.z, 0 );

@@ -74,7 +74,10 @@ export default {
 
 		};
 
+		const DBG = ( k ) => params.has( k );
 		function regenerate() {
+
+			if ( DBG( 'cwnoic' ) ) return;
 
 			pm.u.seed.value = st.seed;
 			pm.u.amp.value = cosmo.normalise( S.sigma8, S.ns );
@@ -92,6 +95,12 @@ export default {
 		}
 
 		function step( aNext ) {
+
+			if ( DBG( 'cwnostep' ) ) {
+
+				st.a = aNext; return;
+
+			}
 
 			const a = st.a;
 			const aMid = Math.sqrt( a * aNext );
@@ -229,6 +238,7 @@ export default {
 		vol.frustumCulled = false;
 		vol.renderOrder = 0;
 		scene.add( vol );
+		if ( DBG( 'cwnovol' ) ) vol.visible = false;
 
 		// ───────────────────────── overlay scene (true colour) ─────────────────────────
 		const overlay = new THREE.Scene();
@@ -426,6 +436,7 @@ export default {
 					return vec4( col.mul( U.fade ), 1 );
 
 				} )();
+				if ( DBG( 'cwsimplepost' ) ) return vec4( acc.rgb, 1 );
 				bloomNode = bloom( mapped, 0.85, 0.55, 0.55 );
 				return vec4( mapped.rgb.add( bloomNode.rgb ).add( overlayPass.getTextureNode( 'output' ).rgb ), 1 );
 
@@ -487,7 +498,7 @@ export default {
 				U.tileGain.value = tileMix * 0.9;
 				U.extent.value = tileMix > 0.001 ? 3 : 1;
 				vol.scale.setScalar( U.extent.value );
-				sprites.visible = vg[ 0 ] > 0;
+				sprites.visible = vg[ 0 ] > 0 && ! DBG( 'cwnosprite' );
 				// exposure rises gently as contrast grows, keeps early epochs readable
 				U.exposure.value = 1.6 + 1.4 * ( 1 - smooth( 0.05, 0.4, a ) );
 

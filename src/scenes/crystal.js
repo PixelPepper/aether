@@ -96,7 +96,15 @@ export default {
 
 		const bokeh = createBokeh( cfg.bokeh );
 		scene.add( bokeh.sprite );
-		if ( params.get( 'dbgview' ) === 'bg' ) bokeh.sprite.visible = false;
+		const hide = ( params.get( 'hide' ) || '' ).split( ',' );
+		if ( hide.includes( 'bokeh' ) ) bokeh.sprite.visible = false;
+		if ( hide.includes( 'bg' ) ) scene.backgroundNode = null;
+		for ( const s of slots ) {
+
+			if ( hide.includes( 'ice' ) ) s.spinner.children[ 0 ].visible = s.spinner.children[ 1 ].visible = false;
+			if ( hide.includes( 'halo' ) ) s.spinner.children[ 2 ].visible = false;
+
+		}
 
 		// ── state ──
 		const st = {

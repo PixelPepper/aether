@@ -208,6 +208,7 @@ export default {
 
 		// ───────────────────────── frame stepping ─────────────────────────
 		let frameNo = 0;
+		const shotFrames = parseInt( ctx.params.get( 'frames' ) || '90' );
 		function frameList( steps, withMist ) {
 
 			const l = solver.stepList( steps ).slice();
@@ -498,6 +499,8 @@ export default {
 			clock += dt;
 			frameNo ++;
 			if ( DBG && frameNo < 6 ) mark( 'frame ' + frameNo );
+			// capture mode: once the requested frame count is reached the shell is reading pixels back; stop feeding the queue
+			if ( ctx.shot && frameNo > shotFrames ) return;
 			applyPaint();
 
 			const steps = ctx.shot ? cfg.steps : Math.max( 1, Math.min( cfg.steps * 2, Math.round( cfg.steps * dt * 60 ) ) );

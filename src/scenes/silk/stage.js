@@ -17,11 +17,11 @@ export function makeLayout() {
 			plinth: { pos: [ 0.05, 0, - 0.35 ], r: 0.62, h: 0.42, round: 0.05 },
 			cyc: { wallZ: - 6.5, cove: 2.6 },
 		},
-		// hang mode: two top-corner anchors per sheet (world), slight lean, sway amplitude
+		// hang mode: a sheet hangs from two top-corner anchors; `gather` < 1 bunches the top edge into folds
 		hangSheets: [
-			{ a: [ - 2.05, 5.15, - 1.75 ], b: [ 1.45, 5.35, - 2.45 ], lean: [ 0, 0, - 0.15 ], bulge: 0.45, sway: 0.28 },
-			{ a: [ - 4.55, 4.25, 0.25 ], b: [ - 2.0, 4.6, - 1.35 ], lean: [ 0.1, 0, 0 ], bulge: 0.35, sway: 0.25 },
-			{ a: [ 1.25, 4.85, - 0.65 ], b: [ 4.05, 4.45, 1.1 ], lean: [ 0, 0, - 0.1 ], bulge: 0.4, sway: 0.3 },
+			{ mid: [ - 0.35, 5.3, - 2.25 ], yaw: 0.42, gather: 0.74, lean: [ 0, 0, - 0.12 ], bulge: 0.45, sway: 0.22 },
+			{ mid: [ - 3.25, 4.35, - 0.2 ], yaw: 1.05, gather: 0.7, lean: [ 0, 0, 0 ], bulge: 0.35, sway: 0.2 },
+			{ mid: [ 2.55, 5.0, - 1.95 ], yaw: 0.1, gather: 0.72, lean: [ 0, 0, - 0.1 ], bulge: 0.4, sway: 0.24 },
 		],
 		// drop mode: sheet centres above the sculptures
 		dropSheets: [
