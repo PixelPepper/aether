@@ -80,6 +80,8 @@ export class ParticleLife {
 		const startAttr = new StorageBufferAttribute( new Uint32Array( this.cellsPadded ), 1, Uint32Array );
 		this.matrixAttr = new StorageBufferAttribute( new Float32Array( MAX_SPECIES * MAX_SPECIES ), 1, Float32Array );
 		this.attributes.push( countAttr, startAttr, this.matrixAttr );
+		this.countAttr = countAttr;
+		this.startAttr = startAttr;
 
 		const countAtomic = storage( countAttr, 'uint', this.cellsPadded ).toAtomic();
 		const countRead = storage( countAttr, 'uint', this.cellsPadded ).toReadOnly();

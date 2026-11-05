@@ -3,13 +3,13 @@
 import * as THREE from 'three/webgpu';
 import {
 	Fn, If, Loop, Break, uniform, vec3, vec4, float, uvec3, globalId, instanceIndex, textureStore, texture3D,
-	length, normalize, smoothstep, mix, max, min, exp, abs, dot, clamp, pow, select, instancedArray,
+	length, smoothstep, mix, max, min, exp, abs, dot, clamp, pow, instancedArray,
 } from 'three/tsl';
 import { fbm, ridged, fbmP, ridgedP } from './noise.js';
 
 // world-space volume box (pillars stand along +Y, camera looks down -Z)
-export const BOX_MIN = new THREE.Vector3( - 8, - 7, - 6 );
-export const BOX_MAX = new THREE.Vector3( 8, 7, 4 );
+export const BOX_MIN = new THREE.Vector3( - 11, - 7, - 6 );
+export const BOX_MAX = new THREE.Vector3( 11, 7, 4 );
 export const BOX_SIZE = new THREE.Vector3().subVectors( BOX_MAX, BOX_MIN );
 
 // the ionising cluster (NGC 6611-like), up and behind the pillars
@@ -365,4 +365,3 @@ export class NebulaVolume {
 
 }
 
-export { select };

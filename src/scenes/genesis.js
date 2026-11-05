@@ -177,11 +177,20 @@ export default {
 		}
 
 		sim.reset( 1 );
+		const DEBUG = params.has( 'gdebug' );
+		if ( DEBUG ) {
+
+			window.__genesis = { sim, renderer, THREE };
+			console.log( 'genesis: N', N, 'bound', bound.toFixed( 2 ), 'dim', sim.dim, 'cellsPadded', sim.cellsPadded, 'scan passes', sim.scan.passes.length );
+
+		}
 
 		// Let the soup pre-organise a little before the first frame (cheap on real GPUs).
 		const warm = params.has( 'warm' ) ? parseInt( params.get( 'warm' ) ) : [ ctx.shot ? 50 : 0, 90, 150 ][ Math.min( tier, 2 ) ];
 		for ( let i = 0; i < warm; i ++ ) sim.step( 0.02 );
+		const tw = performance.now();
 		await renderer.computeAsync( sim.forceKernel ); // flush; also guarantees pipelines are compiled
+		if ( DEBUG ) console.log( 'genesis: warm-up', warm, 'steps', ( performance.now() - tw ).toFixed( 0 ), 'ms' );
 
 		// ── pointer state ──
 		const ptr = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(), fwd = new THREE.Vector3();

@@ -57,12 +57,12 @@ export function makeGauss( rng ) {
 
 // ───────────────────────── galaxy model ─────────────────────────
 
-export function galaxyModel( massScale = 1 ) {
+export function galaxyModel( massScale = 1, ov = {} ) {
 
 	const L = Math.sqrt( massScale ); // size ∝ M^½  →  v ∝ M^¼
 	return {
 		q: massScale, L,
-		halo: { M: 1.0 * massScale, a: 2.4 * L, rcut: 16 * L },
+		halo: { M: 1.0 * massScale, a: ( ov.haloA ?? 2.4 ) * L, rcut: ( ov.haloCut ?? 16 ) * L },
 		bulge: { M: 0.13 * massScale, a: 0.2 * L, rcut: 3.0 * L },
 		bh: 0.006 * massScale,
 		disk: { Rd: 1.0 * L, Rmax: 5.0 * L, z0: 0.07 * L },
@@ -437,7 +437,7 @@ export function buildScene( opts ) {
 
 	for ( let i = 0; i < Lyt.nMassive; i ++ ) mVel[ i * 4 + 3 ] = 3; // kind 3 = idle
 
-	const gals = [ galaxyModel( 1 ), galaxyModel( massRatio ) ];
+	const gals = [ galaxyModel( 1, opts.model ), galaxyModel( massRatio, opts.model ) ];
 	const mass = [];
 	const parts = gals.map( ( g, gi ) => {
 
