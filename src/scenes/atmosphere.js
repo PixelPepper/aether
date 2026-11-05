@@ -26,7 +26,7 @@ export default {
 	async create( ctx ) {
 
 		const { renderer, camera, controls } = ctx;
-		const cfg = TIERS[ Math.max( 0, Math.min( 2, ctx.tier ) ) ];
+		const cfg = { ...TIERS[ Math.max( 0, Math.min( 2, ctx.tier ) ) ], debugView: ctx.params.has( 'atmview' ) };
 		const scene = new THREE.Scene();
 		scene.background = new THREE.Color( 0x000000 );
 

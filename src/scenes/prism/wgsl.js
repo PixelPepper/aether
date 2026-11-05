@@ -427,7 +427,7 @@ fn pt_amb_w(lam: vec4f, tw: vec4f) -> vec3f {
 	return s;
 }
 
-fn pt_path(ro0: vec3f, rd0: vec3f, uw: f32, first: bool, gd: ptr<function, vec4f>, gp: ptr<function, vec4f>, lm: texture_2d<f32>, lms: sampler) -> vec3f {
+fn pt_path(ro0: vec3f, rd0: vec3f, uw: f32, first: bool, gd: ptr<private, vec4f>, gp: ptr<private, vec4f>, lm: texture_2d<f32>, lms: sampler) -> vec3f {
 	var lam = vec4f(0.0); var tw = vec4f(0.0);
 	for (var i = 0; i < 4; i++) {
 		let ls = pt_lambda(fract(uw + f32(i) * 0.25));
@@ -518,7 +518,7 @@ fn pt_path(ro0: vec3f, rd0: vec3f, uw: f32, first: bool, gd: ptr<function, vec4f
 }
 `;
 
-	const eye = /* wgsl */`fn pt_eye(pix: vec2f, nidx: u32, seed: u32, gd: ptr<function, vec4f>, gp: ptr<function, vec4f>, lm: texture_2d<f32>, lms: sampler, ${uArgs}) -> vec4f {
+	const eye = /* wgsl */`fn pt_eye(pix: vec2f, nidx: u32, seed: u32, gd: ptr<private, vec4f>, gp: ptr<private, vec4f>, lm: texture_2d<f32>, lms: sampler, ${uArgs}) -> vec4f {
 	pt_setup(${uPass});
 	pt_rng = pt_pcg(seed);
 	let spp = max(u32(A0.z), 1u);
@@ -539,7 +539,7 @@ fn pt_path(ro0: vec3f, rd0: vec3f, uw: f32, first: bool, gd: ptr<function, vec4f
 }
 `;
 
-	const photon = /* wgsl */`fn pt_photon(ro: ptr<function, vec4f>, rd: ptr<function, vec4f>, st: ptr<function, vec4f>, seed: ptr<function, u32>, spl: ptr<function, vec4f>, sps: ptr<function, vec4f>, ${uArgs}) -> f32 {
+	const photon = /* wgsl */`fn pt_photon(ro: ptr<private, vec4f>, rd: ptr<private, vec4f>, st: ptr<private, vec4f>, seed: ptr<private, u32>, spl: ptr<private, vec4f>, sps: ptr<private, vec4f>, ${uArgs}) -> f32 {
 	pt_setup(${uPass});
 	*spl = vec4f(-1.0); *sps = vec4f(-1.0);
 	if ((*st).z < 0.5) { return 0.0; }

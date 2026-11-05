@@ -119,18 +119,33 @@ export default {
 
 		};
 
+		const dbg = ctx.params.has( 'sdbg' ) ? ( ...a ) => console.warn( '[stellar]', ( performance.now() / 1000 ).toFixed( 2 ), ...a ) : () => {};
+		dbg( 'create start' );
+
 		// ── pre-warm: a few dozen steps so the very first frame is already a living loop ──
 		fluid.init();
+		if ( ctx.params.has( 'sdbg' ) ) await fluid.sync();
+		dbg( 'init done' );
 		const warmDt = 1 / 40;
-		for ( let i = 0; i < T.prewarm; i ++ ) {
+		const prewarm = ctx.params.has( 'spw' ) ? parseInt( ctx.params.get( 'spw' ) ) : T.prewarm;
+		for ( let i = 0; i < prewarm; i ++ ) {
 
 			flareClock += warmDt;
 			simTime += warmDt;
 			FU.time.value = simTime;
 			setFlareUniforms( flareClock );
 			fluid.step( warmDt );
+			if ( i === 0 ) {
+
+				if ( ctx.params.has( 'sdbg' ) ) await fluid.sync();
+				dbg( 'first step done' );
+
+			}
 
 		}
+
+		if ( ctx.params.has( 'sdbg' ) ) await fluid.sync();
+		dbg( 'prewarm done', prewarm );
 
 		// ── GUI ──
 		const gui = ctx.gui;
@@ -214,6 +229,7 @@ export default {
 
 		// ── post: composite volume over sky/limb, bloom ──
 		let bloomNode = null;
+		let frameNo = 0;
 
 		return {
 			scene,
@@ -243,6 +259,7 @@ export default {
 				placeCamera( t );
 				render.updateCamera( camera );
 				render.renderVolume();
+				if ( frameNo ++ < 4 ) dbg( 'frame', frameNo );
 
 				statsTimer -= dt;
 				if ( statsTimer <= 0 ) {

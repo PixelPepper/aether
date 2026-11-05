@@ -274,9 +274,10 @@ export function sampleTracers( g, m, rot, counts, rng, galaxyId, out, seedPhase 
 	const armPhase = ( R ) => Math.log( Math.max( R, 0.15 ) / R0 ) / Math.tan( pitch ) + seedPhase;
 	const cdfCut = ( Rmax, Rs ) => 1 - ( 1 + Rmax / Rs ) * Math.exp( - Rmax / Rs );
 
-	const putDisk = ( idx, type, Rs, Rmax, z0, armFrac, armW, sigFrac, lum, col ) => {
+	const putDisk = ( idx, type, Rs, Rmax, z0, armFrac, armW, sigFrac, lum, col, Rmin = 0 ) => {
 
-		const R = expDiskR( rng() * cdfCut( Rmax, Rs ) ) * Rs;
+		let R = expDiskR( rng() * cdfCut( Rmax, Rs ) ) * Rs;
+		for ( let k = 0; k < 30 && R < Rmin; k ++ ) R = expDiskR( rng() * cdfCut( Rmax, Rs ) ) * Rs;
 		let ph;
 		if ( rng() < armFrac ) {
 
@@ -318,7 +319,7 @@ export function sampleTracers( g, m, rot, counts, rng, galaxyId, out, seedPhase 
 	};
 
 	const lq = g.q; // luminosity scales with galaxy mass
-	for ( let i = 0; i < counts.gas; i ++ ) putDisk( o ++, T_GAS, g.gas.Rg, g.gas.Rmax, g.gas.z0, 0.7, 0.32, 0.04, 1.0 * lq, 1 );
+	for ( let i = 0; i < counts.gas; i ++ ) putDisk( o ++, T_GAS, g.gas.Rg, g.gas.Rmax, g.gas.z0, 0.7, 0.32, 0.04, 1.0 * lq, 1, ( 0.55 + 0.25 * rng() ) * g.L );
 	o = counts.offsetStars;
 	for ( let i = 0; i < counts.bulge; i ++ ) putSpheroid( o ++, T_BULGE, g.bulge.a, 2.2 * g.L, 0.32 * lq / counts.bulge, 0.18 + rng() * 0.22, sB );
 	for ( let i = 0; i < counts.disk; i ++ ) putDisk( o ++, T_DISK, g.disk.Rd, g.disk.Rmax, g.disk.z0, 0.25, 0.6, 0.12, 0.42 * lq / counts.disk, 0.35 + rng() * 0.35 );

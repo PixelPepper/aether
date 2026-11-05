@@ -432,12 +432,12 @@ export default {
 				if ( DBG ) {
 
 					window.__dbgFrame = frameNo;
-					if ( frameNo < 4 ) dlog( 'frame', frameNo );
+					dlog( 'frame', frameNo );
 
 				}
 
 				updatePx();
-				if ( ! P.paused && P.timeScale > 0 ) {
+				if ( ! P.paused && P.timeScale > 0 && ! prm.has( 'nosim' ) ) {
 
 					const dtSim = P.timeScale * UNITS_PER_SEC * Math.min( dt, 1 / 30 );
 					step( dtSim );

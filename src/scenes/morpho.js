@@ -17,7 +17,7 @@ const PRESETS = {
 };
 
 const TIERS = {
-	0: { G: 48, iters: 4, steps: 110, refl: 40, stepVox: 0.8, du: 0.06, prerun: 480 },
+	0: { G: 48, iters: 4, steps: 110, refl: 40, stepVox: 0.8, du: 0.06, prerun: 320 },
 	1: { G: 96, iters: 8, steps: 170, refl: 64, stepVox: 0.75, du: 0.085, prerun: 1400 },
 	2: { G: 128, iters: 14, steps: 230, refl: 90, stepVox: 0.7, du: 0.1, prerun: 2000 },
 };
@@ -48,6 +48,11 @@ export default {
 		// ── simulation ──
 		const sim = createSim( renderer, G );
 		const su = sim.u;
+		// Software adapters (SwiftShader) emulate workgroupBarrier with fibres, making the shared-memory tiled kernel
+		// ~30× slower than direct reads; there (only) the untiled twin of the same update is used. ?tiled=1 forces tiling.
+		const tiled = params.has( 'tiled' ) ? params.get( 'tiled' ) !== '0' : ! ctx.isSoftware;
+		const stepAB = tiled ? sim.stepAB : sim.stepNaiveAB;
+		const stepBA = tiled ? sim.stepBA : sim.stepNaiveBA;
 		su.du.value = tierCfg.du;
 
 		const state = {
@@ -124,7 +129,7 @@ export default {
 		for ( let i = 0; i < pre; i += CHUNK * 2 ) {
 
 			const list = [];
-			for ( let j = 0; j < CHUNK && i + j * 2 < pre; j ++ ) list.push( sim.stepAB, sim.stepBA );
+			for ( let j = 0; j < CHUNK && i + j * 2 < pre; j ++ ) list.push( stepAB, stepBA );
 			renderer.compute( list );
 			if ( i === 0 ) await log( `first ${list.length} iterations` );
 			if ( ( i / ( CHUNK * 2 ) ) % 4 === 3 ) await new Promise( ( r ) => setTimeout( r, 0 ) );
@@ -239,7 +244,7 @@ export default {
 				acc += ( tierCfg.iters / 2 ) * state.speed;
 				const pairs = Math.floor( acc );
 				acc -= pairs;
-				for ( let i = 0; i < pairs; i ++ ) list.push( sim.stepAB, sim.stepBA );
+				for ( let i = 0; i < pairs; i ++ ) list.push( stepAB, stepBA );
 				lastIters = pairs * 2;
 
 				su.fade.value = Math.exp( - dt / 0.6 );

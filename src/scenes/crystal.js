@@ -42,7 +42,13 @@ export default {
 
 		const { renderer, camera, controls, params, tier } = ctx;
 		const cfg = { ...TIERS[ Math.max( 0, Math.min( 2, tier ) ) ] };
-		if ( params.has( 'lattice' ) ) cfg.N = Math.max( 64, parseInt( params.get( 'lattice' ) ) & ~ 1 );
+		if ( params.has( 'lattice' ) ) {
+
+			cfg.N = Math.max( 64, parseInt( params.get( 'lattice' ) ) & ~ 1 );
+			cfg.bake = Math.max( cfg.bake, Math.round( cfg.N * 1.33 / 8 ) * 8 );
+			cfg.mesh = Math.max( cfg.mesh, cfg.N >> 1 );
+
+		}
 		const rnd = mulberry32( ctx.shot ? 1234 + ( parseInt( params.get( 'seed' ) || '0' ) ) : ( Math.random() * 1e9 ) | 0 );
 
 		const scene = new THREE.Scene();
@@ -207,7 +213,7 @@ export default {
 			slot.P.seed.value = Math.floor( rnd() * 997 );
 			slot.spin0 = rnd() * Math.PI * 2;
 			slot.prec0 = rnd() * Math.PI * 2;
-			slot.scale = 3.2;
+			slot.scale = 3.0;
 			slot.group.position.set( 0, 0, 0 );
 			slot.group.visible = true;
 			lattice.bake();
@@ -421,7 +427,7 @@ export default {
 
 		return {
 			scene,
-			bloom: { strength: 0.55, radius: 0.35, threshold: 0.22 },
+			bloom: { strength: 0.6, radius: 0.3, threshold: 0.45 },
 
 			update( dt, t ) {
 
@@ -477,7 +483,7 @@ export default {
 					if ( s.state === 'grow' ) {
 
 						const frac = Math.max( lattice.radius, 6 ) / RD;
-						const target = THREE.MathUtils.clamp( 0.8 / frac, 1.0, 3.2 );
+						const target = THREE.MathUtils.clamp( 0.62 / frac, 1.0, 3.0 );
 						if ( ! params.has( 'dbgcam' ) ) s.scale += ( target - s.scale ) * ( 1 - Math.exp( - dt / 1.2 ) );
 						s.group.scale.setScalar( s.scale );
 

@@ -108,7 +108,9 @@ export function buildMarchMaterial( vol, U ) {
 
 					// ── user-ignited stars
 					const tauU = [ L4.y, L4.z, L4.w ];
-					for ( let k = 0; k < MAX_USER_STARS; k ++ ) {
+					If( U.userOn.greaterThan( 0.5 ), () => {
+
+						for ( let k = 0; k < MAX_USER_STARS; k ++ ) {
 
 						const sp = U.starPos[ k ], sa = U.starPar[ k ];
 						const lvk = sp.xyz.sub( p );
@@ -124,7 +126,9 @@ export function buildMarchMaterial( vol, U ) {
 						ion.addAssign( xk.mul( dk.div( dk.add( 0.35 ) ) ) );
 						oiii.addAssign( xk.mul( xk ).mul( dk ).mul( 0.8 ) );
 
-					}
+						}
+
+					} );
 
 					// ── emission lines (recombination ∝ n_e n_p ~ ρ²; S II from the partially ionised skin)
 					const ionF = clamp( ion, 0.0, 1.0 );
@@ -139,7 +143,9 @@ export function buildMarchMaterial( vol, U ) {
 
 						const J = JETS[ j ];
 						const ax = normalize( v3( J.d ) );
-						const v = p.sub( v3( J.o ) );
+						const v = p.sub( v3( J.o ) ).toVar();
+						If( dot( v, v ).lessThan( ( J.len + 0.6 ) * ( J.len + 0.6 ) ), () => {
+
 						const s = dot( v, ax );
 						const as = abs( s );
 						const rr2 = max( dot( v, v ).sub( s.mul( s ) ), 0.0 );
@@ -151,9 +157,11 @@ export function buildMarchMaterial( vol, U ) {
 						const bow = exp( td.mul( td ).add( rr2 ).div( 0.05 ).negate() );
 						em.addAssign( cJet.mul( body.add( bow.mul( 0.7 ) ) ).mul( U.emission ).mul( U.jets ) );
 
+						} );
+
 					}
 
-					const albedo = mix( 0.75, 0.55, D.g );
+					const albedo = mix( 0.28, 0.7, D.g );
 					const src = scat.mul( cScat ).mul( sig ).mul( albedo ).add( cAmb.mul( sig ).mul( U.light ) ).add( em );
 					const Tst = exp( sig.mul( dt ).negate() ).toVar();
 					const integ = src.mul( float( 1 ).sub( Tst ) ).div( max( sig, 1e-5 ) );

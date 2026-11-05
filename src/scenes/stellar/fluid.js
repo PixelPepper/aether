@@ -367,6 +367,13 @@ export function createFluid( renderer, cfg ) {
 
 	return {
 		U, h, COUNT, textures, VT: VT_A, DN: DN_A, jacobi,
+		nodes: { peakReset },
+		sync() {
+
+			renderer.compute( peakReset );
+			return renderer.getArrayBufferAsync( PEAK.value );
+
+		},
 		init() {
 
 			renderer.compute( initK );

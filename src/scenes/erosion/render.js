@@ -111,7 +111,7 @@ function skyAmbient( n, U ) {
 	const up = n.y.mul( 0.5 ).add( 0.5 );
 	const sky = vec3( 0.20, 0.23, 0.36 );
 	const ground = vec3( 0.11, 0.075, 0.055 );
-	const sunSide = max( dot( normalize( vec3( n.x, 0, n.z ) ), normalize( vec3( U.sunDir.x, 0, U.sunDir.z ) ) ), 0 );
+	const sunSide = max( dot( vec2( n.x, n.z ), normalize( vec2( U.sunDir.x, U.sunDir.z ) ) ), 0 );
 	return mix( ground, sky, up ).add( vec3( 0.16, 0.08, 0.04 ).mul( sunSide ).mul( up ) );
 
 }

@@ -55,7 +55,8 @@ export default {
 		camera.fov = 36; camera.near = 0.1; camera.far = 1000; camera.updateProjectionMatrix();
 		{
 
-			const dist = 32, el = 7 * DEG, az = 0.55;
+			const q = ( k, d ) => ( ctx.params.has( k ) ? parseFloat( ctx.params.get( k ) ) : d ); // debug overrides
+			const dist = q( 'hzdist', 32 ), el = q( 'hzel', 7 ) * DEG, az = q( 'hzaz', 0.55 );
 			camera.position.set( Math.sin( az ) * Math.cos( el ) * dist, Math.sin( el ) * dist, Math.cos( az ) * Math.cos( el ) * dist );
 
 		}
@@ -85,7 +86,7 @@ export default {
 			rOut: 20,
 			timeScale: 10,
 			stars: 1.0,
-			corona: 0.12,
+			corona: 0.0,
 		};
 
 		const dbgNum = ( k, d ) => ( ctx.params.has( k ) ? parseFloat( ctx.params.get( k ) ) : d );
@@ -467,6 +468,7 @@ export default {
 		gui.add( P, 'corona', 0, 1.5, 0.01 ).name( 'corona (thick layer)' ).onChange( ( v ) => U.corona.value = v );
 		gui.add( P, 'timeScale', 0, 40, 0.5 ).name( 'time (M / s)' );
 		const actions = { drop: () => spawnRandom() };
+		gui.add( P, 'stars', 0, 4, 0.01 ).name( 'starfield' ).onChange( ( v ) => U.sky.value.y = v );
 		gui.add( actions, 'drop' ).name( 'inject plasma blob' );
 
 		// ───────────────── hot spots (pointer) ─────────────────
@@ -517,7 +519,7 @@ export default {
 
 		};
 
-		let pendingClick = null, downAt = null;
+		let pendingClick = null, downAt = null, idleSpawn = 45;
 		const el = renderer.domElement;
 		const onDown = ( e ) => {
 
@@ -587,6 +589,7 @@ export default {
 			const p = [ 0, 1, 2, 3 ].map( ( i ) => tet.u[ i ] + nx * tet.eR[ i ] + ny * tet.eU[ i ] + nz * tet.eF[ i ] );
 			const hit = pickDisk( camBH, [ p[ 1 ], p[ 2 ], p[ 3 ] ], - p[ 0 ], U.aT.value, U.rp.value, rIsco * 1.3, P.rOut );
 			if ( hit ) spawn( THREE.MathUtils.clamp( hit.r, rIsco * 1.6, P.rOut * 0.9 ), hit.phi );
+			idleSpawn = 90;
 
 		};
 
@@ -630,7 +633,19 @@ export default {
 
 				}
 
+				// keep the story going when nobody clicks: a fresh clump every ~45 s of wall time if the disk is quiet
+				idleSpawn -= dt;
+				if ( idleSpawn <= 0 ) {
+
+					idleSpawn = 45;
+					if ( slots.filter( Boolean ).length < 2 ) spawnRandom();
+
+				}
+
 				updateBlobs();
+
+				// headless capture only needs the converged final frame: skip the GPU trace until the last IL² frames
+				if ( ctx.shot && shotUpdates <= shotFrames - IL * IL ) return;
 
 				if ( IL > 1 ) {
 
@@ -669,6 +684,20 @@ export default {
 			resize() {
 
 				fitRes();
+
+			},
+
+			onKey( e ) {
+
+				if ( e.key === 'b' || e.key === 'B' ) spawnRandom();
+				if ( e.key === 'd' || e.key === 'D' ) {
+
+					// cycle full GR → gravity only → off, so the Doppler asymmetry can be switched on/off live
+					P.redshift = ( Number( P.redshift ) + 2 ) % 3;
+					U.mode.value = P.redshift;
+					gui.controllersRecursive().forEach( ( c ) => c.updateDisplay() );
+
+				}
 
 			},
 

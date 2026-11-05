@@ -91,7 +91,7 @@ export function channel( z ) {
 
 	const n = Math.max( 0, - z );
 	const xc = 0.55 * Math.sin( n * 0.13 + 0.4 ) * Math.min( 1, n / 4 ) + 0.9 * Math.sin( n * 0.045 - 0.6 ) * Math.min( 1, n / 12 ) - 0.15;
-	const hw = 0.55 + n * 0.075 + 0.25 * Math.sin( n * 0.21 );
+	const hw = ( 0.55 + n * 0.075 + 0.25 * Math.sin( n * 0.21 ) ) * ( 1 - 0.85 * smooth( 20, 30, n ) );
 	return [ xc, hw ];
 
 }
@@ -105,19 +105,20 @@ export function height( x, z ) {
 	const r = ridged( x * 0.32 + 3.1, z * 0.32 - 7.3 );
 	const big = 0.5 + 0.5 * fbm( x * 0.06 + 11, z * 0.06 - 4, 3 );
 	const wall = smooth( 0.82, 2.6, d );
-	const reach = Math.min( 1, 0.12 + dist * 0.11 ); // keep the nearest slopes modest
-	let h = wall * ( 0.25 + 1.15 * r ) * ( 0.55 + 0.75 * big ) * reach * 1.05;
-	// far range closing the fjord
-	const far = smooth( - 34, - 50, z );
-	h = Math.max( h, far * ( 0.35 + 1.2 * ridged( x * 0.11 + 40, z * 0.11 + 2 ) ) * ( 0.6 + 0.4 * big ) );
-	// shoreline: underwater below the shore, small skerries near the mouth
+	const reach = Math.min( 1, 0.2 + dist * 0.14 ); // keep the nearest slopes modest
+	let h = wall * ( 0.25 + 1.15 * r ) * ( 0.55 + 0.75 * big ) * reach * 1.55;
+	// shoreline: underwater below the shore
 	const shore = smooth( 0.55, 1.0, d );
 	h = h * shore + ( shore - 1 ) * 0.06 - 0.004;
 	h += 0.004 * fbm( x * 9, z * 9, 3 ) * shore;
-	// promontory under the observer: rocky knoll, water starting ~50 m to the north
-	const qx = x / 0.32, qz = ( z + 0.004 ) / ( z < 0 ? 0.055 : 0.5 );
-	const knoll = 1 - smooth( 0.55, 1.05, Math.hypot( qx, qz ) );
-	const knollH = knoll * ( 0.0072 + 0.004 * fbm( x * 60, z * 60, 3 ) ) - 0.0015 * ( 1 - knoll );
+	// far range closing the fjord
+	const far = smooth( - 17, - 28, z );
+	h = Math.max( h, far * ( 0.25 + 1.3 * ridged( x * 0.11 + 40, z * 0.11 + 2 ) ) * ( 0.6 + 0.5 * big ) * 1.2 - 0.05 );
+	// promontory under the observer: a rocky knoll dropping steeply to the water ~30 m ahead
+	const qx = x / 0.11, qz = ( z + 0.002 ) / ( z < 0 ? 0.032 : 0.4 );
+	const q = Math.hypot( qx, qz );
+	const knoll = 1 - smooth( 0.0, 1.0, q );
+	const knollH = 0.0074 * Math.pow( knoll, 0.8 ) + 0.0012 * fbm( x * 90, z * 90, 3 ) * knoll - 0.0015 * ( 1 - knoll );
 	h = Math.max( h, knollH );
 	// a few rocks breaking the surface just off the shore
 	for ( const [ rx, rz, rr, rh ] of ROCKS ) {

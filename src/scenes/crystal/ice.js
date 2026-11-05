@@ -33,10 +33,10 @@ export function createStudio() {
 		texel: uniform( 1 / 1024 ),
 		absorb: uniform( 0.9 ),
 		internal: uniform( 4.0 ),
-		ringI: uniform( 2.4 ), ring0: uniform( 0.035 ), ring1: uniform( 0.16 ), ring2: uniform( 0.45 ), ring3: uniform( 0.9 ),
+		ringI: uniform( 2.0 ), ring0: uniform( 0.05 ), ring1: uniform( 0.24 ), ring2: uniform( 0.5 ), ring3: uniform( 1.0 ),
 		glint: uniform( 28.0 ), glintRes: uniform( 512 ), glintTilt: uniform( 0.5 ), glintDensity: uniform( 0.45 ),
 		rim: uniform( 0.5 ),
-		front: uniform( 1.0 ), // quasi-liquid front glow
+		front: uniform( 0.5 ), // quasi-liquid front glow
 		flash: uniform( 0 ), flashCol: uniform( new THREE.Color( 1.0, 0.75, 0.45 ) ),
 		tanHalf: uniform( Math.tan( THREE.MathUtils.degToRad( 25 ) ) ), aspect: uniform( 16 / 9 ),
 		lKey: uniform( L_KEY ), lFill: uniform( L_FILL ), lSpark: uniform( L_SPARK ),
@@ -47,7 +47,7 @@ export function createStudio() {
 
 		const d = normalize( dirIn.add( vec3( 0, 0, 1e-5 ) ) ); // guard: zero vector from a failed refraction
 		const g = smoothstep( - 0.45, 0.55, d.y.mul( 0.85 ).sub( d.x.mul( 0.4 ) ) );
-		const base = mix( vec3( 0.0020, 0.0024, 0.0065 ), vec3( 0.0085, 0.0105, 0.026 ), g );
+		const base = mix( vec3( 0.0036, 0.0042, 0.011 ), vec3( 0.013, 0.016, 0.040 ), g );
 		const dy = d.y.sub( 0.04 );
 		const pool = exp( d.x.mul( d.x ).add( dy.mul( dy ) ).mul( - 7.0 ) ).mul( vec3( 0.010, 0.015, 0.034 ) );
 		const n = mx_noise_float( d.mul( vec3( 2.2, 2.2, 1.0 ) ) ).mul( 0.5 ).add( 0.5 );
@@ -204,7 +204,7 @@ export function createIceMaterial( studio, tex, P, debug = '' ) {
 		const age = P.now.sub( s.z );
 		const fresh = exp( age.mul( - 1.6 ) ).mul( smoothstep( 0.5, 0.7, s.x ) );
 		const glowCol = mix( vec3( 0.55, 0.85, 1.0 ), S.flashCol, S.flash );
-		const front = glowCol.mul( fresh.mul( 0.7 ).add( s.w.mul( 0.8 ) ) ).mul( S.front ).mul( S.flash.mul( 2.5 ).add( 1.0 ) );
+		const front = glowCol.mul( fresh.mul( 0.6 ).add( s.w.mul( s.w ).mul( 0.3 ) ) ).mul( S.front ).mul( S.flash.mul( 2.5 ).add( 1.0 ) );
 
 		const col = trans.mul( absorb ).mul( float( 1 ).sub( F ) ).add( refl ).add( intern ).add( glint ).add( rim ).add( scatter ).add( front );
 		return vec4( col.mul( float( 1 ).sub( P.fade.mul( 0.6 ) ) ), 1 );
@@ -232,7 +232,7 @@ export function createHaloMaterial( studio, tex, P ) {
 			.add( texture( tex, uv0.add( vec2( t, 0 ) ) ).w.mul( 0.15 ) ).add( texture( tex, uv0.sub( vec2( t, 0 ) ) ).w.mul( 0.15 ) )
 			.add( texture( tex, uv0.add( vec2( 0, t ) ) ).w.mul( 0.15 ) ).add( texture( tex, uv0.sub( vec2( 0, t ) ) ).w.mul( 0.15 ) );
 		const glowCol = mix( vec3( 0.35, 0.7, 1.0 ), S.flashCol, S.flash );
-		const front = glowCol.mul( q.mul( 0.9 ) ).mul( S.front ).mul( S.flash.mul( 3.0 ).add( 1.0 ) );
+		const front = glowCol.mul( q.mul( q ).mul( 0.6 ) ).mul( S.front ).mul( S.flash.mul( 3.0 ).add( 1.0 ) );
 
 		// expanding hexagonal shock front from a cloud-layer change
 		const p = uv0.mul( 2 ).sub( 1 );

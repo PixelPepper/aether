@@ -562,6 +562,20 @@ export function createPlanet( U, atmo, cfg ) {
 
 		col.addAssign( airglow( ro, rd, select( hitG, tG, float( 1e9 ) ), sun ).mul( clouds.alpha.oneMinus() ) );
 
+		if ( cfg.debugView ) {
+
+			// quadrants: TL planet map (height / weather), TR transmittance LUT, BL aerial perspective slice, BR multi-scatter LUT
+			const quv = fract( ndc.mul( 0.5 ).add( 0.5 ).mul( 2 ) );
+			const left = ndc.x.lessThan( 0.0 ), top = ndc.y.greaterThan( 0.0 );
+			const mp = texture( map, quv ).level( 0 );
+			const tlC = vec3( mp.x.mul( 2 ).clamp( 0, 1 ), mp.y, select( mp.x.lessThan( 0.0 ), float( 0.6 ), float( 0 ) ) );
+			const trC = texture( atmo.transLUT, quv ).level( 0 ).rgb;
+			const blC = texture3D( atmo.apLUT, vec3( quv, 0.6 ) ).level( 0 ).rgb.mul( 4 );
+			const brC = texture( atmo.msLUT, quv ).level( 0 ).rgb.mul( 30 );
+			col.assign( select( top, select( left, tlC, trC ), select( left, blC, brC ) ).div( U.exposure ) );
+
+		}
+
 		return vec4( col.mul( U.exposure ), 1 );
 
 	} )();

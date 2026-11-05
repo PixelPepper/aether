@@ -157,7 +157,7 @@ export function createClothSim( renderer, opt ) {
 			// hanging direction: down, leaning slightly into `lean`
 			const ev = new THREE.Vector3( ...( L.lean || [ 0, 0, 0 ] ) ).add( new THREE.Vector3( 0, - 1, 0 ) );
 			ev.sub( eu.clone().multiplyScalar( ev.dot( eu ) ) ).normalize();
-			const en = new THREE.Vector3().crossVectors( eu, ev ).normalize();
+			const en = new THREE.Vector3().crossVectors( ev, eu ).normalize(); // downwind side
 			const ph = rnd() * TAU;
 
 			for ( let j = 0; j < N; j ++ ) {

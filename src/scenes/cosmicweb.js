@@ -87,7 +87,13 @@ export default {
 			st.a = A_START; st.aP = A_START; st.steps = 0;
 			pm.u.D0.value = cosmo.D( A_START );
 			pm.u.P0.value = cosmo.zaMomentumFactor( A_START );
-			renderer.compute( pm.icList );
+			const icl = params.has( 'cwic' ) ? pm.icList.slice( 0, parseInt( params.get( 'cwic' ) ) ) : pm.icList;
+			renderer.compute( icl );
+			if ( DBG( 'cwdump' ) ) {
+
+				for ( const n of [ pm.fft.fx, pm.kShape ] ) console.warn( renderer._pipelines.get( n ).pipeline?.computeProgram?.code );
+
+			}
 			// refresh the density field (colours, volume) without moving anything
 			setGreen( st.a ); pm.u.kick.value = 0; pm.u.drift.value = 0;
 			renderer.compute( pm.stepList );

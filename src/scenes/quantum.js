@@ -517,7 +517,7 @@ export default {
 			if ( ( scn === 'ho' || scn === 'stadium' ) && lastNorm < 0.02 && since > 2 ) launchDefault();
 
 			statT += dt;
-			if ( statT > 0.5 ) {
+			if ( ctx.shot ? frameNo === Math.max( 1, shotFrames - 6 ) : statT > 0.5 ) {
 
 				statT = 0;
 				pollStats();

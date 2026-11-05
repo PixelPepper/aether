@@ -98,6 +98,22 @@ export function createSim( renderer, G ) {
 
 	};
 
+	// Gray–Scott update from the centre value and the face / edge neighbour sums (19-point isotropic Laplacian:
+	// (2·Σfaces + Σedges − 24·c) / 6), written to dst at this invocation's voxel
+	const react = ( cc, faces, edges, dst ) => {
+
+		const lap = faces.mul( 2 ).add( edges ).sub( cc.mul( 24 ) ).div( 6 ).toConst();
+		const gid = globalId.toConst();
+		const p = vec3( gid ).add( 0.5 ).div( Gf ).mul( 2 ).sub( 1 );
+		const { F, K } = paramsAt( p );
+		const U = cc.x, V = cc.y;
+		const uvv = U.mul( V ).mul( V ).toConst();
+		const nu = U.add( u.du.mul( lap.x ) ).sub( uvv ).add( F.mul( float( 1 ).sub( U ) ) );
+		const nv = V.add( u.du.mul( u.ratio ).mul( lap.y ) ).add( uvv ).sub( F.add( K ).mul( V ) );
+		dst.element( gIndex( gid ) ).assign( clamp( vec2( nu, nv ), vec2( 0 ), vec2( 1 ) ) );
+
+	};
+
 	// ── reaction–diffusion step with shared-memory tiling ──
 	function makeStep( src, dst ) {
 
@@ -128,25 +144,34 @@ export function createSim( renderer, G ) {
 				.add( T( X + Z ) ).add( T( X - Z ) ).add( T( - X + Z ) ).add( T( - X - Z ) )
 				.add( T( Y + Z ) ).add( T( Y - Z ) ).add( T( - Y + Z ) ).add( T( - Y - Z ) );
 			const cc = T( 0 ).toConst();
-			// 19-point isotropic Laplacian: (2·Σfaces + Σedges − 24·c) / 6
-			const lap = faces.mul( 2 ).add( edges ).sub( cc.mul( 24 ) ).div( 6 ).toConst();
+			react( cc, faces, edges, dst );
 
-			const gid = globalId.toConst();
-			const p = vec3( gid ).add( 0.5 ).div( Gf ).mul( 2 ).sub( 1 );
-			const { F, K } = paramsAt( p );
+		} )().compute( [ G / WG[ 0 ], G / WG[ 1 ], G / WG[ 2 ] ], WG );
 
-			const U = cc.x, V = cc.y;
-			const uvv = U.mul( V ).mul( V ).toConst();
-			const nu = U.add( u.du.mul( lap.x ) ).sub( uvv ).add( F.mul( float( 1 ).sub( U ) ) );
-			const nv = V.add( u.du.mul( u.ratio ).mul( lap.y ) ).add( uvv ).sub( F.add( K ).mul( V ) );
+	}
 
-			dst.element( gIndex( gid ) ).assign( clamp( vec2( nu, nv ), vec2( 0 ), vec2( 1 ) ) );
+	// same update reading neighbours straight from global memory (no tiling) — used where workgroup barriers are
+	// pathologically slow (software rasterizers emulate them with fibres)
+	function makeStepNaive( src, dst ) {
+
+		return Fn( () => {
+
+			const gid = ivec3( globalId ).toConst();
+			const S = ( dx, dy, dz ) => src.element( gIndex( clamp( gid.add( ivec3( dx, dy, dz ) ), ivec3( 0 ), ivec3( G - 1 ) ) ) );
+			const faces = S( 1, 0, 0 ).add( S( - 1, 0, 0 ) ).add( S( 0, 1, 0 ) ).add( S( 0, - 1, 0 ) ).add( S( 0, 0, 1 ) ).add( S( 0, 0, - 1 ) );
+			const edges = S( 1, 1, 0 ).add( S( 1, - 1, 0 ) ).add( S( - 1, 1, 0 ) ).add( S( - 1, - 1, 0 ) )
+				.add( S( 1, 0, 1 ) ).add( S( 1, 0, - 1 ) ).add( S( - 1, 0, 1 ) ).add( S( - 1, 0, - 1 ) )
+				.add( S( 0, 1, 1 ) ).add( S( 0, 1, - 1 ) ).add( S( 0, - 1, 1 ) ).add( S( 0, - 1, - 1 ) );
+			const cc = src.element( gIndex( gid ) ).toConst();
+			react( cc, faces, edges, dst );
 
 		} )().compute( [ G / WG[ 0 ], G / WG[ 1 ], G / WG[ 2 ] ], WG );
 
 	}
 
 	const stepAB = makeStep( bufA, bufB ).setName( 'morpho.stepAB' );
+	const stepNaiveAB = makeStepNaive( bufA, bufB ).setName( 'morpho.stepNaiveAB' );
+	const stepNaiveBA = makeStepNaive( bufB, bufA ).setName( 'morpho.stepNaiveBA' );
 	const stepBA = makeStep( bufB, bufA ).setName( 'morpho.stepBA' );
 
 	const coordOf = ( idx ) => uvec3( idx.mod( G ), idx.div( G ).mod( G ), idx.div( G * G ) );
@@ -303,8 +328,8 @@ export function createSim( renderer, G ) {
 
 	return {
 		G, N, BG, u, volTex, brickTex, pick, bufA, bufB, aux, occ,
-		stepAB, stepBA, seedKernel, pickKernel, brushKernel, bake, occKernel, distKernel,
-		kernels: [ stepAB, stepBA, seedKernel, pickKernel, brushKernel, bake, occKernel, distKernel ],
+		stepAB, stepBA, stepNaiveAB, stepNaiveBA, seedKernel, pickKernel, brushKernel, bake, occKernel, distKernel,
+		kernels: [ stepAB, stepBA, stepNaiveAB, stepNaiveBA, seedKernel, pickKernel, brushKernel, bake, occKernel, distKernel ],
 		dispose( renderer ) {
 
 			for ( const k of this.kernels ) k.dispose();

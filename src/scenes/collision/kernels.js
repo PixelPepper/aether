@@ -228,12 +228,13 @@ export function createSim( cfg ) {
 			const s = sampleGrid( p.xyz ).toVar();
 			const rho = s.x;
 			const rhoC = min( rho, 4.0 );
-			const fr = float( 1 ).sub( exp( U.drag.mul( rhoC ).mul( U.hT ).negate() ) ).toVar();
 			const dv = s.yzw.sub( v.xyz ).toVar();
+			const shock = smoothstep( 0.05, 0.16, length( dv ) ).toVar();
+			const fr = float( 1 ).sub( exp( U.drag.mul( rhoC ).mul( U.hT ).negate() ) ).mul( shock ).toVar();
 			const has = rho.greaterThan( 0.02 );
 			const nv = select( has, v.xyz.add( dv.mul( fr ) ), v.xyz );
 			// dissipated specific energy rate (per unit time) ~ |dv|² * drag * rho
-			const diss = select( has, dot( dv, dv ).mul( U.drag ).mul( rhoC ), float( 0 ) );
+			const diss = select( has, dot( dv, dv ).mul( U.drag ).mul( rhoC ).mul( shock ), float( 0 ) );
 			// star formation: Schmidt-like density law above a threshold, plus shock-induced (Barnes 2004)
 			const law = rho.mul( sqrt( rho ) ).mul( smoothstep( 0.18, 0.5, rho ) );
 			const rate = U.sfBase.mul( U.sfEff ).mul( law.add( diss.mul( U.shockSF ) ) );

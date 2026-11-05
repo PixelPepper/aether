@@ -11,7 +11,7 @@ import { buildMarchMaterial, buildResolveMaterial } from './nebula/march.js';
 import { buildStars } from './nebula/stars.js';
 
 const TIERS = {
-	0: { res: [ 80, 52, 36 ], detailRes: 32, lightSteps: 28, userSteps: 14, steps: 64, slab: 0, scale: 0.5 },
+	0: { res: [ 64, 40, 28 ], detailRes: 32, lightSteps: 24, userSteps: 12, steps: 48, slab: 0, scale: 0.5 },
 	1: { res: [ 144, 96, 64 ], detailRes: 48, lightSteps: 48, userSteps: 24, steps: 96, slab: 4, scale: 0.5 },
 	2: { res: [ 208, 136, 96 ], detailRes: 64, lightSteps: 64, userSteps: 32, steps: 144, slab: 8, scale: 0.5 },
 };
@@ -38,7 +38,7 @@ export default {
 			density: uniform( 1.0 ), extinction: uniform( 2.0 ), emission: uniform( 1.0 ), light: uniform( 1.0 ),
 			palette: uniform( 1.0 ), steps: uniform( cfg.steps, 'int' ), frame: uniform( 0 ), time: uniform( 0 ),
 			drift: uniform( 0 ), detail: uniform( 1.0 ), detailScale: uniform( 0.36 ), detailOff: uniform( new THREE.Vector3() ),
-			jets: uniform( 1.0 ), userCol: uniform( new THREE.Color( 0.75, 0.85, 1.0 ) ),
+			jets: uniform( 1.0 ), userOn: uniform( 0 ), userCol: uniform( new THREE.Color( 0.75, 0.85, 1.0 ) ),
 			invProj: uniform( new THREE.Matrix4() ), camWorld: uniform( new THREE.Matrix4() ), camPos: uniform( new THREE.Vector3() ),
 			prevViewProj: uniform( new THREE.Matrix4() ), texel: uniform( new THREE.Vector2( 1, 1 ) ), blend: uniform( 1.0 ),
 			pickO: uniform( new THREE.Vector3() ), pickD: uniform( new THREE.Vector3( 0, 0, - 1 ) ),
@@ -341,6 +341,8 @@ export default {
 					if ( ! localThisFrame && ( s.age < 14 || s.held ) ) localThisFrame = s.pos;
 
 				}
+
+				U.userOn.value = slots.some( ( s ) => s.active ) ? 1 : 0;
 
 				// ── volume maintenance: time-sliced global sweep + local bubble updates
 				if ( cfg.slab > 0 && state.drift > 0 ) {

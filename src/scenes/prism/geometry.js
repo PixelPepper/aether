@@ -86,9 +86,9 @@ export const SPHERES = [
 // beam: target point, direction (normalised later), slit half sizes (w across, h along "up").
 export const PRESETS = {
 	prism: {
-		id: 0, plinth: true, objPos: [ 0, PLINTH.h, 0.9 ], yaw: 0.47, pitch: 0, bound: 0.4,
-		beam: { target: [ 0, PLINTH.h + 0.23, 0.9 ], dir: [ 1, 0, 0.103 ], hw: 0.011, hh: 0.075 },
-		cam: { pos: [ 1.15, 1.45, 4.25 ], target: [ 0.25, 1.05, - 0.6 ] },
+		id: 0, plinth: true, objPos: [ 0, PLINTH.h, 0.9 ], yaw: 0.72, pitch: 0, bound: 0.4,
+		beam: { target: [ 0, PLINTH.h + 0.23, 0.97 ], dir: [ 1, 0, - 0.103 ], hw: 0.011, hh: 0.075 },
+		cam: { pos: [ 2.2, 1.55, 3.9 ], target: [ - 0.2, 1.05, - 0.8 ] },
 	},
 	gem: {
 		id: 1, plinth: true, objPos: [ 0, PLINTH.h + 0.24, 0.6 ], yaw: 0.25, pitch: - 0.55, bound: 0.3,

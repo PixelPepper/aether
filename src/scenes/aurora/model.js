@@ -80,7 +80,7 @@ export function createEmission() {
 
 		const yG = smoothstep( 89, 104, h ).mul( float( 1 ).sub( smoothstep( 185, 300, h ).mul( 0.8 ) ) );
 		const yB = float( 0.16 ).mul( float( 1 ).sub( smoothstep( 130, 260, h ).mul( 0.6 ) ) );
-		const yM = smoothstep( 106, 92, h ).mul( 0.9 );
+		const yM = float( 1 ).sub( smoothstep( 92, 106, h ) ).mul( 0.9 );
 		const yR = smoothstep( 165, 260, h ).mul( u.redYield ).mul( float( 1 ).sub( smoothstep( 360, 450, h ).mul( 0.6 ) ) );
 		return vec3( u.cGreen ).mul( yG ).add( vec3( u.cBlue ).mul( yB ) ).add( vec3( u.cMag ).mul( yM ) ).mul( fast )
 			.add( vec3( u.cRed ).mul( yR.mul( slow ) ) );
