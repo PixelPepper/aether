@@ -4,6 +4,7 @@ import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import GUI from 'three/addons/libs/lil-gui.module.min.js';
 import { chapters } from './scenes/index.js';
+import { Score } from './core/audio.js';
 
 const $ = ( id ) => document.getElementById( id );
 const params = new URLSearchParams( location.search );
@@ -101,6 +102,19 @@ const gui = new GUI( { title: 'controls' } );
 gui.close();
 let guiVisible = ! SHOT && innerWidth > 640;
 gui.domElement.classList.toggle( 'closed-hard', ! guiVisible );
+
+// ───────────────────────── sound ─────────────────────────
+const score = new Score();
+const soundBtn = $( 'sound' );
+function setSound( on ) {
+
+	if ( on ) score.start(); else score.stop();
+	soundBtn.textContent = on ? 'sound on' : 'sound off';
+	soundBtn.setAttribute( 'aria-pressed', String( on ) );
+
+}
+
+soundBtn.onclick = () => setSound( ! score.enabled );
 
 // ───────────────────────── context passed to chapters ─────────────────────────
 const ctx = {
@@ -216,6 +230,7 @@ async function goTo( index ) {
 	camera.fov = 50; camera.near = 0.01; camera.far = 2000; camera.updateProjectionMatrix();
 
 	const meta = chapters[ index ];
+	score.setChapter( meta.id );
 	const mod = ( await meta.load() ).default;
 	const folder = gui.addFolder( mod.title || meta.label );
 	ctx.gui = folder;
@@ -279,6 +294,22 @@ function resize() {
 addEventListener( 'resize', resize );
 
 let frameTimes = [];
+let gpuMs = null; // GPU time per frame (render + compute) from timestamp queries, when the adapter supports them
+let gpuPending = false;
+
+function sampleGpu() {
+
+	if ( SHOT || gpuPending || ! renderer.hasFeature?.( 'timestamp-query' ) ) return;
+	gpuPending = true;
+	Promise.all( [ renderer.resolveTimestampsAsync( 'render' ), renderer.resolveTimestampsAsync( 'compute' ) ] ).then( () => {
+
+		const ms = ( renderer.info.render.timestamp || 0 ) + ( renderer.info.compute.timestamp || 0 );
+		if ( ms > 0 ) gpuMs = gpuMs === null ? ms : gpuMs * 0.8 + ms * 0.2;
+
+	} ).catch( () => {} ).finally( () => gpuPending = false );
+
+}
+
 function adapt( dtMs ) {
 
 	if ( FIXED_Q !== null || SHOT ) return;
@@ -288,8 +319,9 @@ function adapt( dtMs ) {
 	const median = frameTimes[ frameTimes.length >> 1 ];
 	frameTimes = [];
 	let next = pixelRatio;
-	if ( median > 22 ) next = Math.max( 0.5, pixelRatio * 0.85 );
-	else if ( median < 14 ) next = Math.min( maxDPR, pixelRatio * 1.08 );
+	// Frame time is vsync-capped, so it can only tell us we are too slow. GPU time tells us when there is headroom.
+	if ( median > 22 || ( gpuMs !== null && gpuMs > 15 ) ) next = Math.max( 0.5, pixelRatio * 0.85 );
+	else if ( gpuMs !== null ? gpuMs < 9 && median < 18 : median < 14 ) next = Math.min( maxDPR, pixelRatio * 1.08 );
 	if ( Math.abs( next - pixelRatio ) > 0.02 ) {
 
 		pixelRatio = next;
@@ -313,9 +345,23 @@ addEventListener( 'keydown', ( e ) => {
 
 	}
 
+	if ( e.key === 'm' || e.key === 'M' ) setSound( ! score.enabled );
+	if ( e.key === 't' || e.key === 'T' ) setTour( ! tour.on );
 	current?.inst.onKey?.( e );
 
 } );
+
+// ───────────────────────── tour (hands-free) ─────────────────────────
+const tour = { on: false, timer: 0, every: parseFloat( params.get( 'tourEvery' ) || '45' ) };
+function setTour( on ) {
+
+	tour.on = on; tour.timer = 0;
+	$( 'hint-tour' ).textContent = on ? 'tour on' : 'tour';
+	if ( on ) controls.autoRotate = true;
+
+}
+
+if ( params.has( 'tour' ) ) setTour( true );
 
 // ───────────────────────── loop ─────────────────────────
 const clock = { t: 0, last: performance.now() };
@@ -337,6 +383,7 @@ async function tick() {
 		clock.t += dt;
 		if ( controls.enabled ) controls.update( dt );
 		current.inst.update?.( dt, clock.t, ctx );
+		score.setPress( pointer.down ? 1 : Math.min( 1, pointer.velocity.length() * 0.15 ) );
 		if ( SHOT ) {
 
 			if ( shotBusy ) return;
@@ -357,12 +404,26 @@ async function tick() {
 	fpsAcc += dt; fpsN ++;
 	if ( fpsAcc > 0.5 ) {
 
-		$( 'st-fps' ).textContent = ( fpsN / fpsAcc ).toFixed( 0 );
+		$( 'st-fps' ).textContent = ( fpsN / fpsAcc ).toFixed( 0 ) + ( gpuMs !== null ? ` · ${gpuMs.toFixed( 1 )}ms gpu` : '' );
+		sampleGpu();
 		fpsAcc = 0; fpsN = 0;
 
 	}
 
 	adapt( dt * 1000 );
+
+	if ( tour.on && ! switching && ! SHOT ) {
+
+		tour.timer += dt;
+		if ( pointer.down ) tour.timer = 0; // someone is playing: don't yank the chapter away
+		if ( tour.timer > tour.every ) {
+
+			tour.timer = 0;
+			goTo( currentIndex + 1 );
+
+		}
+
+	}
 
 	if ( SHOT && current && frame >= SHOT_FRAMES && ! window.__ready && ! shotBusy ) {
 
@@ -418,8 +479,21 @@ if ( SHOT ) {
 
 } else {
 
-	$( 'boot' ).classList.add( 'gone' );
-	setTimeout( () => $( 'boot' ).remove(), 1200 );
+	// the first chapter is already running behind a translucent veil; entering is also the user gesture audio needs
+	$( 'boot' ).classList.add( 'ready' );
+	$( 'boot-msg' ).textContent = 'Five real-time simulations, computed on your GPU.';
+	$( 'enter-row' ).hidden = false;
+	$( 'enter-sound' ).focus();
+	const enter = ( withSound ) => {
+
+		if ( withSound ) setSound( true );
+		$( 'boot' ).classList.add( 'gone' );
+		setTimeout( () => $( 'boot' ).remove(), 1200 );
+
+	};
+
+	$( 'enter-sound' ).onclick = () => enter( true );
+	$( 'enter-silent' ).onclick = () => enter( false );
 
 }
 

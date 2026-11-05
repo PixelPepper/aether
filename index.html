@@ -6,7 +6,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 	<title>Aether</title>
 	<link rel="preconnect" href="https://fonts.googleapis.com">
-	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+	<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 	<link rel="stylesheet" href="./src/style.css">
 </head>
 <body>
@@ -33,14 +33,19 @@
 			<div id="st-extra"></div>
 		</aside>
 
-		<div id="hint">drag to orbit · scroll to zoom · <kbd>←</kbd><kbd>→</kbd> chapters · <kbd>H</kbd> hide UI · <kbd>G</kbd> controls</div>
+		<button id="sound" title="Toggle sound (M)" aria-pressed="false">sound off</button>
+
+		<div id="hint">drag to orbit · scroll to zoom · <kbd>←</kbd><kbd>→</kbd> chapters · <kbd>H</kbd> hide UI · <kbd>G</kbd> controls · <kbd>M</kbd> sound · <kbd>T</kbd> <span id="hint-tour">tour</span></div>
 	</div>
 
 	<div id="fade"></div>
 	<div id="boot">
 		<div class="mark">AETHER</div>
 		<div id="boot-msg">initialising GPU…</div>
-		<button id="enter" hidden>enter</button>
+		<div id="enter-row" hidden>
+			<button id="enter-sound" class="enter primary">Enter with sound</button>
+			<button id="enter-silent" class="enter">Enter in silence</button>
+		</div>
 	</div>
 
 	<script type="module" src="./src/main.js"></script>
