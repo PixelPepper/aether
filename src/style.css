@@ -152,3 +152,30 @@ html.fallback-mode, html.fallback-mode body { overflow: auto; height: auto; min-
 	.fb-intro { margin: 32px auto 44px; }
 	.fb-browsers div { min-width: 0; flex: 1 1 100%; }
 }
+
+/* ───────── device lost / chapter error ───────── */
+#lost {
+	position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px;
+	background: radial-gradient(ellipse at center, rgba(11,16,34,.92) 0%, rgba(0,0,0,.96) 70%);
+	opacity: 0; transition: opacity .8s ease;
+}
+#lost.on { opacity: 1; }
+.lost-card { max-width: 460px; text-align: center; display: grid; justify-items: center; gap: 14px; }
+.lost-card h2 { margin: 6px 0 0; font-family: var(--f-display); font-weight: 400; font-size: clamp(30px, 6vw, 44px); line-height: 1.05; }
+.lost-card p { margin: 0; color: var(--fg-dim); font-size: 14px; line-height: 1.7; }
+.lost-card .lost-detail { font-family: var(--f-mono); font-size: 10.5px; color: var(--fg-faint); word-break: break-word; }
+.lost-card .lost-detail:empty { display: none; }
+
+#ch-error {
+	position: absolute; left: calc(32px + var(--sa-l)); top: calc(96px + var(--sa-t)); max-width: min(420px, calc(100vw - 64px));
+	display: grid; gap: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.5;
+	background: var(--glass); border: 1px solid var(--fg-faint); border-radius: 10px;
+	backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+#ch-error b { font-weight: 500; }
+#ch-error code { font-family: var(--f-mono); font-size: 10.5px; color: var(--fg-dim); word-break: break-word; }
+#ch-error button {
+	justify-self: start; font: inherit; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--bg);
+	background: var(--fg); border: 1px solid var(--fg); padding: 7px 12px; border-radius: 999px; cursor: pointer;
+}
+@media (max-width: 640px) { #ch-error { left: 16px; right: 16px; max-width: none; top: calc(120px + var(--sa-t)); } }
