@@ -10,12 +10,12 @@ import { FluidRenderer } from './ocean/ssfr.js';
 import { bakeEnvironment, ORB_C, ORB_R } from './ocean/env.js';
 
 const PRESETS = {
-	'low · 16k · 32³': { count: 16000, grid: 32, sub: 2 },
+	'low · 12k · 32³': { count: 12000, grid: 32, sub: 2 },
 	'medium · 55k · 48³': { count: 55000, grid: 48, sub: 2 },
 	'high · 180k · 64³': { count: 180000, grid: 64, sub: 3 },
 	'ultra · 260k · 72³': { count: 260000, grid: 72, sub: 3 },
 };
-const TIER_PRESET = [ 'low · 16k · 32³', 'medium · 55k · 48³', 'high · 180k · 64³' ];
+const TIER_PRESET = [ 'low · 12k · 32³', 'medium · 55k · 48³', 'high · 180k · 64³' ];
 
 export default {
 	id: 'ocean',
@@ -65,11 +65,11 @@ export default {
 		};
 
 		// ── environment + fluid renderer ──
-		const envRT = bakeEnvironment( renderer, ctx.tier === 0 ? 1024 : 2048 );
+		const envRT = bakeEnvironment( renderer, ctx.tier === 0 ? 512 : 2048 );
 		await dbg( 'env bake' );
 		const fluid = new FluidRenderer( renderer, camera, U, envRT, {
-			fluidScale: ctx.tier === 2 ? 1 : 1,
-			thickScale: 0.5,
+			fluidScale: 1,
+			thickScale: ctx.tier === 0 ? 0.25 : 0.5,
 			iterations: ctx.tier === 0 ? 2 : 3,
 		} );
 
@@ -78,7 +78,7 @@ export default {
 
 			renderer.getDrawingBufferSize( dbSize );
 			// cap the fluid buffers on very large canvases (they are smooth anyway)
-			fluid.fluidScale = Math.min( 1, 2200 / Math.max( 1, dbSize.x ) );
+			fluid.fluidScale = Math.min( ctx.tier === 0 ? 0.5 : 1, 2200 / Math.max( 1, dbSize.x ) );
 			fluid.setSize( dbSize.x, dbSize.y );
 
 		};
@@ -224,7 +224,8 @@ export default {
 
 			post( _ctx, _scenePass ) {
 
-				const comp = convertToTexture( fluid.compositeNode() );
+				// software tier: shade at half resolution (bilinear upsample) to stay inside the CPU budget
+				const comp = convertToTexture( fluid.compositeNode(), null, null, { resolutionScale: ctx.tier === 0 ? 0.5 : 1 } );
 				const bl = bloom( comp, 0.75, 0.55, 0.35 );
 				this._bloom = bl;
 				return comp.add( bl );

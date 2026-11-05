@@ -178,6 +178,7 @@ export default {
 
 		sim.reset( 1 );
 		const DEBUG = params.has( 'gdebug' );
+		const PAUSE = params.has( 'gpause' );
 		if ( DEBUG ) {
 
 			window.__genesis = { sim, renderer, THREE };
@@ -255,7 +256,7 @@ export default {
 				ru.focus.value = cam.position.length();
 
 				const simDt = Math.min( Math.max( dt, 1 / 240 ), 1 / 30 ) * 1.2 * state.timeScale;
-				if ( simDt > 0 ) sim.step( simDt );
+				if ( simDt > 0 && ! PAUSE ) sim.step( simDt );
 
 				statT -= dt;
 				if ( statT <= 0 ) {
