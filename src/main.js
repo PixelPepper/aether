@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import GUI from 'three/addons/libs/lil-gui.module.min.js';
 import { chapters } from './scenes/index.js';
 import { Score } from './core/audio.js';
+import { showFallback } from './fallback.js';
 
 const $ = ( id ) => document.getElementById( id );
 const params = new URLSearchParams( location.search );
@@ -17,7 +18,7 @@ const canvas = $( 'gl' );
 
 if ( ! navigator.gpu ) {
 
-	$( 'boot-msg' ).innerHTML = 'Aether needs <b>WebGPU</b>.<br>Use a recent Chrome, Edge, Safari 26+ or Firefox 141+ on a GPU-equipped device.';
+	showFallback( 'no-webgpu' );
 	throw new Error( 'WebGPU unavailable' );
 
 }
@@ -36,14 +37,14 @@ try {
 
 } catch ( e ) {
 
-	$( 'boot-msg' ).textContent = 'GPU init failed: ' + e.message;
+	showFallback( 'init-failed', e.message );
 	throw e;
 
 }
 
 if ( ! renderer.backend.isWebGPUBackend ) {
 
-	$( 'boot-msg' ).innerHTML = 'WebGPU adapter unavailable — this experience relies on compute shaders.';
+	showFallback( 'no-adapter' );
 	throw new Error( 'not WebGPU backend' );
 
 }
