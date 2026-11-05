@@ -5,7 +5,7 @@
 import * as THREE from 'three/webgpu';
 import {
 	Fn, If, Loop, Return, Continue, instanceIndex, uniform, uniformArray, storage,
-	float, int, uint, vec3, vec4, ivec3, select, min, max, sqrt, length, normalize, cross, dot,
+	float, int, uint, vec2, vec3, vec4, ivec3, select, min, max, sqrt, length, normalize, cross, dot,
 	abs, floor, sin, cos, atan, atomicAdd, atomicLoad, atomicStore, atomicMin, floatBitsToUint, smoothstep,
 } from 'three/tsl';
 
@@ -302,7 +302,7 @@ export function createClothSim( renderer, opt ) {
 
 		If( U.pinsOn.greaterThan( 0.5 ).and( pinId.greaterThan( 0.5 ) ), () => {
 
-			const k = uint( pinId.sub( 0.5 ) ).sub( u32( 1 ) ); // round(pinId) - 1
+			const k = uint( pinId.add( 0.5 ) ).sub( u32( 1 ) ); // round(pinId) - 1
 			const target = anchorPos.element( k ).xyz.add( rest.xyz ).sub( anchorRest.element( k ).xyz );
 			pos.element( i ).assign( vec4( target, 0 ) );
 
@@ -497,7 +497,7 @@ export function createClothSim( renderer, opt ) {
 
 		Loop( { start: int( 0 ), end: int( 27 ), type: 'int', condition: '<', name: 'o' }, ( { o } ) => {
 
-			const off = ivec3( o.mod( 3 ).sub( 1 ), o.div( 3 ).mod( 3 ).sub( 1 ), o.div( 9 ).sub( 1 ) );
+			const off = ivec3( o.mod( int( 3 ) ).sub( int( 1 ) ), o.div( int( 3 ) ).mod( int( 3 ) ).sub( int( 1 ) ), o.div( int( 9 ) ).sub( int( 1 ) ) );
 			const h = hashCell( c.add( off ) ).toVar();
 			const start = cellStart.element( h ).toVar();
 			const n = min( atomicLoad( cellCount.element( h ) ), u32( MAXC ) ).toVar();
@@ -622,7 +622,7 @@ export function createClothSim( renderer, opt ) {
 
 	const sdPlinth = ( p ) => {
 
-		const dxz = length( p.xz.sub( vec3( plinth.pos[ 0 ], 0, plinth.pos[ 2 ] ).xz ) ).sub( plinth.r - plinth.round );
+		const dxz = length( p.xz.sub( vec2( plinth.pos[ 0 ], plinth.pos[ 2 ] ) ) ).sub( plinth.r - plinth.round );
 		const dy = abs( p.y.sub( plinth.h * 0.5 ) ).sub( plinth.h * 0.5 - plinth.round );
 		const ox = max( dxz, 0 ), oy = max( dy, 0 );
 		return min( max( dxz, dy ), 0 ).add( sqrt( ox.mul( ox ).add( oy.mul( oy ) ) ) ).sub( plinth.round );

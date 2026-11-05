@@ -19,7 +19,7 @@
 
 import * as THREE from 'three/webgpu';
 import {
-	Fn, If, Loop, Break, Return, uniform, uniformArray, instancedArray, globalId, vec2, vec3, vec4, uvec2, float,
+	Fn, If, Loop, Break, Return, uniform, uniformArray, instancedArray, globalId, vec2, vec3, vec4, uvec2, float, uint,
 	texture, textureStore, screenUV, select, mix, clamp, max, abs, sqrt, pow, log, exp, length, normalize, dot,
 	smoothstep, atan, floor, round,
 } from 'three/tsl';
@@ -95,7 +95,12 @@ export default {
 			tau: uniform( 1.1 ), exposure: uniform( P.exposure ), b2w: uniform( new THREE.Matrix3() ),
 			pixAng: uniform( 0.003 ), sky: uniform( new THREE.Vector4( 0.05, 1, 0, 0 ) ),
 			tInsp: uniform( 650 ), period: uniform( 160 ), streak: uniform( 0.06 ), streakStride: uniform( 0.004 ),
+			ilStep: uniform( 1, 'uint' ), ilOff: uniform( new THREE.Vector2( 0, 0 ) ),
 		};
+		// tier 0 (software rasteriser): trace a 2×2-interleaved quarter of the pixels per frame (progressive refinement)
+		const IL = ctx.tier === 0 ? 2 : 1;
+		U.ilStep.value = IL;
+		let ilFrame = 0;
 		const blobs = Array.from( { length: NB }, () => new THREE.Vector4( 0, 0, 0, 0 ) );
 		const uBlobs = uniformArray( blobs, 'vec4' );
 
@@ -182,9 +187,12 @@ export default {
 		};
 
 		// ───────────────── kernel 1: geodesic trace ─────────────────
+		const ilX = () => globalId.x.mul( U.ilStep ).add( uint( U.ilOff.x ) );
+		const ilY = () => globalId.y.mul( U.ilStep ).add( uint( U.ilOff.y ) );
+
 		const traceKernel = Fn( () => {
 
-			const gx = globalId.x, gy = globalId.y;
+			const gx = ilX().toVar( 'gx' ), gy = ilY().toVar( 'gy' );
 			If( gx.greaterThanEqual( U.W ).or( gy.greaterThanEqual( U.H ) ), () => {
 
 				Return();
@@ -296,7 +304,7 @@ export default {
 		// ───────────────── kernel 2: lensed sky + composite ─────────────────
 		const composeKernel = Fn( () => {
 
-			const gx = globalId.x, gy = globalId.y;
+			const gx = ilX().toVar( 'gx' ), gy = ilY().toVar( 'gy' );
 			If( gx.greaterThanEqual( U.W ).or( gy.greaterThanEqual( U.H ) ), () => {
 
 				Return();
@@ -336,13 +344,14 @@ export default {
 		// ───────────────── kernel 3: anamorphic streak ─────────────────
 		const streakKernel = Fn( () => {
 
+			// half resolution: streak texel (gx, gy) covers output pixels 2gx..2gx+1
 			const gx = globalId.x, gy = globalId.y;
-			If( gx.greaterThanEqual( U.W ).or( gy.greaterThanEqual( U.H ) ), () => {
+			If( gx.mul( 2 ).greaterThanEqual( U.W ).or( gy.mul( 2 ).greaterThanEqual( U.H ) ), () => {
 
 				Return();
 
 			} );
-			const uv0 = vec2( float( gx ).add( 0.5 ), float( gy ).add( 0.5 ) ).div( U.texSize );
+			const uv0 = vec2( float( gx ).mul( 2 ).add( 1 ), float( gy ).mul( 2 ).add( 1 ) ).div( U.texSize );
 			const xmax = U.uvScale.x.sub( float( 0.5 ).div( U.texSize.x ) );
 			const acc = vec3( 0 ).toVar( 'acc' );
 			Loop( { start: - 20, end: 21, type: 'int' }, ( { i } ) => {
@@ -396,7 +405,7 @@ export default {
 			const uvT = screenUV.mul( U.uvScale );
 			const base = catmullRom( outTex, uvT );
 			bloomNode = bloom( texture( outTex, uvT ), 0.42, 0.55, 0.75 );
-			const st = texture( streakTex, uvT ).xyz.mul( U.streak.mul( 16.0 ) ).mul( vec3( 0.75, 0.85, 1.15 ) );
+			const st = texture( streakTex, uvT.mul( 0.5 ) ).xyz.mul( U.streak.mul( 16.0 ) ).mul( vec3( 0.75, 0.85, 1.15 ) );
 			return vec4( base.add( bloomNode.xyz ).add( st ), 1 );
 
 		};
@@ -546,11 +555,13 @@ export default {
 		}
 
 		// warm-up compile (async so the first frame does not stall the page)
-		await renderer.computeAsync( traceKernel, [ Math.ceil( W / 8 ), Math.ceil( H / 8 ), 1 ] );
-		await renderer.computeAsync( composeKernel, [ Math.ceil( W / 8 ), Math.ceil( H / 8 ), 1 ] );
-		await renderer.computeAsync( streakKernel, [ Math.ceil( W / 8 ), Math.ceil( H / 8 ), 1 ] );
+		await renderer.computeAsync( traceKernel, [ 1, 1, 1 ] );
+		await renderer.computeAsync( composeKernel, [ 1, 1, 1 ] );
+		await renderer.computeAsync( streakKernel, [ 1, 1, 1 ] );
 
 		let statT = 0;
+		const dbg = ctx.params.has( 'hzdebug' );
+		let lastT = performance.now();
 
 		return {
 			scene,
@@ -569,10 +580,20 @@ export default {
 
 				updateBlobs();
 
-				const disp = [ Math.ceil( W / 8 ), Math.ceil( H / 8 ), 1 ];
+				if ( IL > 1 ) {
+
+					const k = ilFrame ++ % 4;
+					U.ilOff.value.set( [ 0, 1, 1, 0 ][ k ], [ 0, 1, 0, 1 ][ k ] );
+
+				}
+
+				const disp = [ Math.ceil( W / IL / 8 ), Math.ceil( H / IL / 8 ), 1 ];
+				const t0 = dbg ? performance.now() : 0;
 				renderer.compute( traceKernel, disp );
 				renderer.compute( composeKernel, disp );
-				renderer.compute( streakKernel, disp );
+				renderer.compute( streakKernel, [ Math.ceil( W / 16 ), Math.ceil( H / 16 ), 1 ] );
+				if ( dbg ) console.warn( `[horizon] frame ${ilFrame} cpu ${( performance.now() - t0 ).toFixed( 1 )} ms, dt ${( performance.now() - lastT ).toFixed( 0 )} ms` );
+				if ( dbg ) lastT = performance.now();
 
 				statT -= dt;
 				if ( statT <= 0 ) {
