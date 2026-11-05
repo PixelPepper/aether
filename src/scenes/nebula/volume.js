@@ -13,7 +13,7 @@ export const BOX_MAX = new THREE.Vector3( 11, 7, 4 );
 export const BOX_SIZE = new THREE.Vector3().subVectors( BOX_MAX, BOX_MIN );
 
 // the ionising cluster (NGC 6611-like), up and behind the pillars
-export const CLUSTER = new THREE.Vector3( 2.7, 4.7, - 3.3 );
+export const CLUSTER = new THREE.Vector3( 2.8, 5.3, - 3.0 );
 
 // three "Pillars of Creation"-like columns: base, mid, head + radii (world units)
 export const PILLARS = [
@@ -102,7 +102,7 @@ export class NebulaVolume {
 		// large-scale, slowly evolving domain warp
 		const q = p.mul( 0.16 ).add( vec3( t.mul( 0.011 ), t.mul( - 0.007 ), t.mul( 0.017 ) ) );
 		const w = vec3( fbm( q, 3 ), fbm( q.add( vec3( 5.2, 1.3, 2.8 ) ), 3 ), fbm( q.add( vec3( 9.1, 4.7, 7.3 ) ), 3 ) ).toVar();
-		const pw = p.add( w.mul( 1.25 ) ).toVar();
+		const pw = p.add( w.mul( 1.1 ) ).toVar();
 
 		// pillars (two tapered segments + bulbous head each)
 		let dP = null;
@@ -125,9 +125,10 @@ export class NebulaVolume {
 		// turbulent erosion of every surface + striations along the pillars
 		const n1 = fbm( p.mul( 0.55 ).add( w.mul( 0.6 ) ), 5 ).toVar();
 		const str = ridged( pw.mul( vec3( 0.95, 0.32, 0.95 ) ).add( 2.0 ), 3 );
-		const d = smin( dP, dBank, 1.3 ).add( n1.mul( 0.62 ) ).sub( str.mul( 0.28 ) ).toVar();
+		const n2 = fbm( p.mul( 1.7 ).add( vec3( 3.1, 0, 0 ) ), 3 );
+		const d = smin( dP, dBank, 1.3 ).add( n1.mul( 0.42 ) ).add( n2.mul( 0.22 ) ).sub( str.mul( 0.32 ) ).toVar();
 
-		const core = ssr( 0.3, - 0.8, d ).toVar();
+		const core = ssr( 0.2, - 0.45, d ).toVar();
 		const rhoCore = core.mul( n1.mul( 0.55 ).add( 1.05 ) ).mul( 1.7 );
 
 		// back wall: a lumpy sheet of gas behind the cluster, lit face-on
@@ -137,9 +138,11 @@ export class NebulaVolume {
 
 		// diffuse HII gas + ridged filaments/sheets (where light shafts show up)
 		const nd = fbm( p.mul( 0.21 ).add( w.mul( 0.75 ) ).add( vec3( 0, 0, 7.7 ) ), 4 ).mul( 0.5 ).add( 0.5 ).toVar();
-		const rhoDiff = float( 0.018 ).add( pow( nd, 3.0 ).mul( 0.16 ) );
+		// thin veil in front of the pillars, richer gas behind them
+		const front = mix( 1.0, 0.25, smoothstep( - 2.0, 2.5, p.z ) );
+		const rhoDiff = float( 0.018 ).add( pow( nd, 3.0 ).mul( 0.16 ) ).mul( front );
 		const rf = ridged( pw.mul( 0.27 ).add( vec3( 3.0, 1.0, 5.0 ) ), 4 );
-		const rhoFil = pow( rf, 9.0 ).mul( 0.42 );
+		const rhoFil = pow( rf, 9.0 ).mul( 0.42 ).mul( front );
 
 		const rho = rhoCore.add( wall ).add( rhoDiff ).add( rhoFil ).toVar();
 

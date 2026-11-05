@@ -21,10 +21,11 @@ const phase2 = ( c, k ) => mix( hg( c, 0.6 * k ), hg( c, - 0.3 * k ), 0.22 );
 
 export const PALETTES = {
 	// [ natural, hubble ]
-	ha: [ [ 1.0, 0.12, 0.30 ], [ 0.95, 0.70, 0.30 ] ],
-	sii: [ [ 0.80, 0.06, 0.05 ], [ 1.0, 0.34, 0.09 ] ],
-	oiii: [ [ 0.06, 0.60, 0.72 ], [ 0.10, 0.52, 1.0 ] ],
-	scat: [ [ 0.50, 0.60, 0.80 ], [ 0.80, 0.58, 0.42 ] ],
+	// SHO mapping (S II→red, Hα→green, O III→blue), graded toward gold rims / teal gas
+	ha: [ [ 1.0, 0.12, 0.30 ], [ 0.55, 0.85, 0.35 ] ],
+	sii: [ [ 0.80, 0.06, 0.05 ], [ 1.0, 0.25, 0.05 ] ],
+	oiii: [ [ 0.06, 0.60, 0.72 ], [ 0.05, 0.45, 1.0 ] ],
+	scat: [ [ 0.50, 0.60, 0.80 ], [ 0.60, 0.40, 0.25 ] ],
 	jet: [ [ 1.0, 0.20, 0.12 ], [ 1.0, 0.42, 0.14 ] ],
 	amb: [ [ 0.020, 0.014, 0.030 ], [ 0.020, 0.018, 0.022 ] ],
 };
@@ -89,7 +90,7 @@ export function buildMarchMaterial( vol, U ) {
 					const lv = C.sub( p );
 					const r2 = dot( lv, lv ).toVar();
 					const cosT = dot( rd, lv.mul( inverseSqrt( r2 ) ) ).toVar();
-					const dil = U.light.div( r2.mul( 0.045 ).add( 0.4 ) ).toVar();
+					const dil = U.light.mul( 2.5 ).div( r2.mul( 0.045 ).add( 0.4 ) ).toVar();
 					const tauC = L4.x.mul( kEx ).toVar();
 					let S = vec3( 0 );
 					const oct = [ [ 1.0, 1.0, 1.0 ], [ 0.5, 0.45, 0.5 ], [ 0.25, 0.2, 0.25 ] ]; // a^i, b^i, c^i
@@ -104,7 +105,7 @@ export function buildMarchMaterial( vol, U ) {
 					// ionising flux reaching this point (UV is absorbed ~2.4x more strongly)
 					const xC = exp( tauC.mul( - 2.4 ) );
 					const ion = xC.mul( dil.div( dil.add( 0.35 ) ) ).toVar();
-					const oiii = xC.mul( xC ).mul( dil ).mul( exp( sqrt( r2 ).mul( - 0.33 ) ) ).toVar();
+					const oiii = xC.mul( xC ).mul( dil ).mul( exp( sqrt( r2 ).mul( - 0.05 ) ) ).toVar();
 
 					// ── user-ignited stars
 					const tauU = [ L4.y, L4.z, L4.w ];
@@ -132,11 +133,11 @@ export function buildMarchMaterial( vol, U ) {
 
 					// ── emission lines (recombination ∝ n_e n_p ~ ρ²; S II from the partially ionised skin)
 					const ionF = clamp( ion, 0.0, 1.0 );
-					const rhoE = rho.mul( min( rho, 1.25 ) );
+					const rhoE = rho.mul( min( rho, 1.25 ).add( 0.25 ) );
 					const ha = rhoE.mul( ionF );
-					const sii = rhoE.mul( ionF ).mul( float( 1 ).sub( ionF ) ).mul( D.b.mul( 1.6 ).add( 0.6 ) ).mul( 2.6 );
-					const o3 = rho.mul( oiii ).mul( 0.9 );
-					const em = cHa.mul( ha ).add( cS.mul( sii ) ).add( cO.mul( o3 ) ).mul( U.emission ).toVar();
+					const sii = rhoE.mul( ionF ).mul( float( 1 ).sub( ionF ) ).mul( D.b.mul( 1.6 ).add( 0.6 ) ).mul( 1.0 );
+					const o3 = rho.mul( oiii ).mul( 2.0 );
+					const em = cHa.mul( ha ).add( cS.mul( sii ) ).add( cO.mul( o3 ) ).mul( U.emission.mul( 5.0 ) ).toVar();
 
 					// ── Herbig–Haro jets: knotty bipolar outflows with bow shocks (analytic emission)
 					for ( let j = 0; j < JETS.length; j ++ ) {
@@ -155,13 +156,13 @@ export function buildMarchMaterial( vol, U ) {
 						const body = radial.mul( knots ).mul( ssr( J.len, J.len * 0.55, as ) ).mul( smoothstep( 0.0, 0.15, as ) );
 						const td = as.sub( J.len );
 						const bow = exp( td.mul( td ).add( rr2 ).div( 0.05 ).negate() );
-						em.addAssign( cJet.mul( body.add( bow.mul( 0.7 ) ) ).mul( U.emission ).mul( U.jets ) );
+						em.addAssign( cJet.mul( body.add( bow.mul( 0.7 ) ) ).mul( U.emission ).mul( U.jets ).mul( 3.0 ) );
 
 						} );
 
 					}
 
-					const albedo = mix( 0.28, 0.7, D.g );
+					const albedo = mix( 0.12, 0.3, D.g );
 					const src = scat.mul( cScat ).mul( sig ).mul( albedo ).add( cAmb.mul( sig ).mul( U.light ) ).add( em );
 					const Tst = exp( sig.mul( dt ).negate() ).toVar();
 					const integ = src.mul( float( 1 ).sub( Tst ) ).div( max( sig, 1e-5 ) );

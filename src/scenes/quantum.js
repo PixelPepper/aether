@@ -40,7 +40,7 @@ export default {
 
 		// ───────────────────────── solver ─────────────────────────
 		// software rasterisers (tier 0) serialise workgroup barriers, so they get the barrier-free Stockham variant
-		const fftMode = ctx.params.get( 'qfft' ) || ( tier === 0 ? 'global' : 'shared' );
+		const fftMode = ctx.params.get( 'qfft' ) || ( tier === 0 ? 'line' : 'shared' );
 		const solver = new SchrodingerSolver( renderer, { N, hits: cfg.hits, mist: cfg.mist, fft: fftMode } );
 		const rhoRef = 1 / ( 2 * Math.PI * 0.05 * 0.05 );
 		solver.u.rhoRef.value = rhoRef;

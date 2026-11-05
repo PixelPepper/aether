@@ -8,11 +8,12 @@ import { SnowLattice } from './crystal/sim.js';
 import { PRESETS, KEYS, layerLabel, jitter } from './crystal/presets.js';
 import { createStudio, createIceMaterial, createHaloMaterial } from './crystal/ice.js';
 import { createBokeh } from './crystal/bokeh.js';
+import { createSparkles } from './crystal/sparkle.js';
 
 const TIERS = [
-	{ N: 160, bake: 320, mesh: 160, maxSteps: 8, bokeh: 70 },
-	{ N: 512, bake: 768, mesh: 256, maxSteps: 24, bokeh: 180 },
-	{ N: 768, bake: 1024, mesh: 384, maxSteps: 64, bokeh: 320 },
+	{ N: 160, bake: 320, mesh: 160, maxSteps: 8, bokeh: 70, sparkles: 600 },
+	{ N: 512, bake: 768, mesh: 256, maxSteps: 24, bokeh: 180, sparkles: 2000 },
+	{ N: 768, bake: 1024, mesh: 384, maxSteps: 64, bokeh: 320, sparkles: 4000 },
 ];
 
 const GROW_TIME = 34; // seconds per flake at speed 1
@@ -88,13 +89,14 @@ export default {
 			const haloMesh = new THREE.Mesh( haloGeo, halo );
 			haloMesh.renderOrder = 1;
 			for ( const m of [ top, bottom, haloMesh ] ) m.frustumCulled = false;
+			const sparkle = createSparkles( studio, lattice.textures[ k ], P, cfg.sparkles );
 			const spinner = new THREE.Group();
-			spinner.add( top, bottom, haloMesh );
+			spinner.add( top, bottom, haloMesh, sparkle.sprite );
 			group.add( spinner );
 			group.visible = false;
 			scene.add( group );
 			return {
-				k, P, mat, halo, group, spinner, state: 'idle', t: 0, scale: 3, spin0: 0, prec0: 0, tilt: 0.36,
+				k, P, mat, halo, sparkle, group, spinner, state: 'idle', t: 0, scale: 3, spin0: 0, prec0: 0, tilt: 0.36,
 				retireFrom: new THREE.Vector3(),
 			};
 
@@ -384,7 +386,10 @@ export default {
 					const res = await lattice.poll();
 					onRadius( res );
 					const g = T * Math.pow( Math.min( 1, lattice.radius / R_TARGET ), 1 / 0.85 );
-					if ( gp.drift ) drift( Math.max( 0, g - st.growT ) ); // conditions keep drifting in virtual time
+					const dtv = Math.max( 0, g - st.growT );
+					if ( gp.drift ) drift( dtv ); // conditions keep drifting in virtual time
+					st.flash *= Math.exp( - dtv / 1.4 );
+					st.ringR += dtv * 0.45;
 					st.growT = g;
 					if ( jumpAt > 0 && lattice.radius >= jumpAt * R_TARGET ) {
 
@@ -562,7 +567,7 @@ export default {
 				haloGeo.dispose();
 				for ( const s of slots ) {
 
-					s.mat.dispose(); s.halo.dispose();
+					s.mat.dispose(); s.halo.dispose(); s.sparkle.mat.dispose();
 
 				}
 

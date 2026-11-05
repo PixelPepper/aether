@@ -6,7 +6,7 @@
 import * as THREE from 'three/webgpu';
 import {
 	Fn, uniform, instanceIndex, float, vec2, vec3, vec4, hash, uv, abs, max, mix, smoothstep, sin, cos, exp, sqrt,
-	pow, texture, normalize, dot, transformNormalToView, positionViewDirection, varying, select, modelViewMatrix,
+	pow, texture, normalize, dot, transformNormalToView, varying, select, modelViewMatrix,
 } from 'three/tsl';
 
 export function createSparkles( studio, tex, P, count ) {

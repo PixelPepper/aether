@@ -34,9 +34,11 @@ export default {
 
 	async create( ctx ) {
 
-		const { renderer, camera, controls, params, tier } = ctx;
+		const { renderer, camera, controls, params } = ctx;
 		const LOG = params.has( 'cwlog' ) ? ( ...m ) => console.warn( '[cw]', ( performance.now() / 1000 ).toFixed( 2 ), ...m ) : () => {};
-		LOG( 'create' );
+		// headless capture / software adapters always get the smallest box unless ?tier= is explicit
+		const tier = params.has( 'tier' ) ? ctx.tier : ( ctx.shot || ctx.isSoftware ? 0 : ctx.tier );
+		LOG( 'create tier', tier, ctx.tier, ctx.isSoftware, JSON.stringify( renderer.backend.adapter?.info || {} ) );
 
 		// ───────────────────────── sizes per tier ─────────────────────────
 		const pow2 = ( v, d ) => {

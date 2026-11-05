@@ -150,12 +150,38 @@ export function createRaymarch( sim, opts ) {
 	const march = marchFn( MAXSTEPS, 'morphoMarch' );
 	const marchRefl = marchFn( REFL_STEPS, 'morphoMarchRefl' );
 
-	const normalAt = ( p ) => {
+	// tricubic B-spline sample from 8 trilinear taps (Sigg & Hadwiger) — C² smooth field for normals
+	const Gf = float( G ), invG = float( 1 / G );
+	const cubicV = ( p ) => {
 
-		const e = vox * 0.9;
-		const dx = Vs( p.add( vec3( e, 0, 0 ) ) ).sub( Vs( p.sub( vec3( e, 0, 0 ) ) ) );
-		const dy = Vs( p.add( vec3( 0, e, 0 ) ) ).sub( Vs( p.sub( vec3( 0, e, 0 ) ) ) );
-		const dz = Vs( p.add( vec3( 0, 0, e ) ) ).sub( Vs( p.sub( vec3( 0, 0, e ) ) ) );
+		const c = p.sub( bmin ).mul( invSize ).mul( Gf ).sub( 0.5 ).toConst();
+		const i = c.floor().toConst();
+		const f = c.sub( i ).toConst();
+		const f2 = f.mul( f ), f3 = f2.mul( f );
+		const omf = vec3( 1 ).sub( f );
+		const w0 = omf.mul( omf ).mul( omf ).div( 6 );
+		const w1 = f3.mul( 0.5 ).sub( f2 ).add( 2 / 3 );
+		const w2 = omf.mul( omf ).mul( omf ).mul( 0.5 ).sub( omf.mul( omf ) ).add( 2 / 3 );
+		const w3 = f3.div( 6 );
+		const g0 = w0.add( w1 ).toConst(), g1 = w2.add( w3 ).toConst();
+		const h0 = i.add( w1.div( g0 ) ).sub( 0.5 ).mul( invG ).toConst();
+		const h1 = i.add( w3.div( g1 ) ).add( 1.5 ).mul( invG ).toConst();
+		const T = ( x, y, z ) => texture3D( volTex, vec3( x, y, z ), float( 0 ) ).x;
+		const a = mix( T( h1.x, h1.y, h1.z ), T( h0.x, h1.y, h1.z ), g0.x );
+		const b = mix( T( h1.x, h0.y, h1.z ), T( h0.x, h0.y, h1.z ), g0.x );
+		const cc = mix( T( h1.x, h1.y, h0.z ), T( h0.x, h1.y, h0.z ), g0.x );
+		const d = mix( T( h1.x, h0.y, h0.z ), T( h0.x, h0.y, h0.z ), g0.x );
+		return mix( mix( a, b, g0.y ), mix( cc, d, g0.y ), g0.z );
+
+	};
+
+	const normalAt = ( p, cubic = false ) => {
+
+		const F = cubic ? cubicV : Vs;
+		const e = vox * ( cubic ? 0.75 : 0.9 );
+		const dx = F( p.add( vec3( e, 0, 0 ) ) ).sub( F( p.sub( vec3( e, 0, 0 ) ) ) );
+		const dy = F( p.add( vec3( 0, e, 0 ) ) ).sub( F( p.sub( vec3( 0, e, 0 ) ) ) );
+		const dz = F( p.add( vec3( 0, 0, e ) ) ).sub( F( p.sub( vec3( 0, 0, e ) ) ) );
 		return normalize( vec3( dx, dy, dz ).negate().add( vec3( 0, 1e-7, 0 ) ) );
 
 	};
@@ -187,7 +213,7 @@ export function createRaymarch( sim, opts ) {
 	const background = ( rd ) => {
 
 		const hz = exp( abs( rd.y.sub( 0.02 ) ).mul( - 5.0 ) );
-		return mix( vec3( 0.0035, 0.0038, 0.0048 ), vec3( 0.022, 0.021, 0.024 ), hz );
+		return mix( vec3( 0.0016, 0.0017, 0.0021 ), vec3( 0.0105, 0.010, 0.0115 ), hz );
 
 	};
 
@@ -223,7 +249,7 @@ export function createRaymarch( sim, opts ) {
 	// ── full sculpture shading ──
 	const shade = ( p, rd ) => {
 
-		const n = normalAt( p ).toConst();
+		const n = normalAt( p, opts.cubicNormals === true ).toConst();
 		const V = rd.negate().toConst();
 		const ndv = max( dot( n, V ), 1e-3 ).toConst();
 		const s4 = SAMPLE( p ).toConst();
@@ -381,7 +407,7 @@ export function createRaymarch( sim, opts ) {
 			// lacquered dark floor: key light with a soft sphere shadow, sky occlusion under the sculpture
 			const sh = sphSoftShadow( pf, u.keyDir, float( 3.0 ) );
 			const ao = clamp( float( 1 ).sub( sphOcclusion( pf, up ).mul( 0.9 ) ), 0, 1 );
-			const alb = vec3( 0.05, 0.048, 0.046 );
+			const alb = vec3( 0.018, 0.017, 0.016 );
 			const fl = alb.mul( u.keyCol.mul( u.keyDir.y ).mul( sh ).mul( 0.6 ).add( vec3( 0.05 ).mul( ao ) ) ).mul( ao ).toVar();
 			// raymarched soft reflection of the sculpture
 			const rr = reflect( rd, up );

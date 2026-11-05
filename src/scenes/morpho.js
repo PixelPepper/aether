@@ -30,7 +30,11 @@ export default {
 	async create( ctx ) {
 
 		const { renderer, camera, controls, pointer, params } = ctx;
-		const tierCfg = { ...( TIERS[ ctx.tier ] || TIERS[ 2 ] ) };
+		// r186's backend keeps no adapter reference, so detect software rasterizers from the device itself
+		const info = renderer.backend.device?.adapterInfo || {};
+		const software = ctx.isSoftware || /swiftshader|llvmpipe|software|lavapipe/i.test( `${info.vendor} ${info.architecture} ${info.description} ${info.device}` );
+		const tier = params.has( 'tier' ) ? ctx.tier : ( software || ctx.shot ? 0 : ctx.tier );
+		const tierCfg = { ...( TIERS[ tier ] || TIERS[ 2 ] ) };
 		if ( params.has( 'grid' ) ) tierCfg.G = Math.max( 32, Math.round( parseInt( params.get( 'grid' ) ) / 8 ) * 8 );
 		const G = tierCfg.G;
 
@@ -50,7 +54,7 @@ export default {
 		const su = sim.u;
 		// Software adapters (SwiftShader) emulate workgroupBarrier with fibres, making the shared-memory tiled kernel
 		// ~30× slower than direct reads; there (only) the untiled twin of the same update is used. ?tiled=1 forces tiling.
-		const tiled = params.has( 'tiled' ) ? params.get( 'tiled' ) !== '0' : ! ctx.isSoftware;
+		const tiled = params.has( 'tiled' ) ? params.get( 'tiled' ) !== '0' : ! ( software || ( ctx.shot && tier === 0 ) );
 		const stepAB = tiled ? sim.stepAB : sim.stepNaiveAB;
 		const stepBA = tiled ? sim.stepBA : sim.stepNaiveBA;
 		su.du.value = tierCfg.du;
@@ -89,7 +93,7 @@ export default {
 		// ── renderer side ──
 		const S = 1.0;
 		const rm = createRaymarch( sim, {
-			halfSize: S, maxSteps: tierCfg.steps, reflSteps: tierCfg.refl, stepVox: tierCfg.stepVox,
+			halfSize: S, maxSteps: tierCfg.steps, reflSteps: tierCfg.refl, stepVox: tierCfg.stepVox, cubicNormals: tier >= 1,
 			floorY: - 0.97, sphereR: 0.82,
 		} );
 		const ru = rm.u;
@@ -122,7 +126,7 @@ export default {
 
 		// ── init: seed and pre-grow so the sculpture is already structured on the first frame ──
 		reseed( true );
-		await log( 'seeded' );
+		await log( `seeded (tier ${tier}, software ${software} [${info.vendor}|${info.architecture}|${info.description}], tiled ${tiled}, G ${G})` );
 		const warp = parseInt( params.get( 'warp' ) || '0' );
 		const pre = Math.max( 0, ( params.has( 'prerun' ) ? parseInt( params.get( 'prerun' ) ) : tierCfg.prerun ) + warp );
 		const CHUNK = 40;

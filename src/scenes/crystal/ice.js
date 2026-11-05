@@ -36,6 +36,7 @@ export function createStudio() {
 		ringI: uniform( 1.8 ), ring0: uniform( 0.07 ), ring1: uniform( 0.3 ), ring2: uniform( 0.5 ), ring3: uniform( 1.0 ),
 		glint: uniform( 24.0 ), glintRes: uniform( 512 ), glintTilt: uniform( 1.1 ), glintDensity: uniform( 0.6 ),
 		rim: uniform( 0.3 ),
+		sparkSize: uniform( 0.05 ), sparkGain: uniform( 6.0 ),
 		front: uniform( 0.5 ), // quasi-liquid front glow
 		flash: uniform( 0 ), flashCol: uniform( new THREE.Color( 1.0, 0.75, 0.45 ) ),
 		tanHalf: uniform( Math.tan( THREE.MathUtils.degToRad( 25 ) ) ), aspect: uniform( 16 / 9 ),
@@ -57,6 +58,16 @@ export function createStudio() {
 	} );
 
 	// ── dark-field annular illumination seen by transmitted rays (relative to the undeviated ray) ──
+	// cheap backdrop for reflected rays (no fabric noise)
+	const velvetLite = Fn( ( [ dirIn ] ) => {
+
+		const d = normalize( dirIn.add( vec3( 0, 0, 1e-5 ) ) );
+		const g = smoothstep( - 0.45, 0.55, d.y.mul( 0.85 ).sub( d.x.mul( 0.4 ) ) );
+		return mix( vec3( 0.006, 0.007, 0.017 ), vec3( 0.016, 0.020, 0.048 ), g ).mul( 0.95 );
+
+	} );
+
+	// annular light only (the velvet is added once per fragment by the caller)
 	const envT = Fn( ( [ dir, straight ] ) => {
 
 		const c = clamp( dot( dir, straight ), - 1, 1 );
@@ -67,7 +78,7 @@ export function createStudio() {
 		const warm = vec3( 1.0, 0.55, 0.16 ), cool = vec3( 0.12, 0.6, 1.0 ), vio = vec3( 0.62, 0.3, 1.0 );
 		const col = mix( cool, warm, smoothstep( - 0.75, 0.75, sin( phi ) ) ).toVar();
 		col.assign( mix( col, vio, pow( abs( cos( phi ) ), 4.0 ).mul( 0.55 ) ) );
-		return velvet( dir ).add( col.mul( ring ).mul( S.ringI ) );
+		return col.mul( ring ).mul( S.ringI );
 
 	} );
 
@@ -79,7 +90,7 @@ export function createStudio() {
 		const key = pow( k, 18.0 ).mul( 2.2 ).add( pow( k, 300.0 ).mul( 9.0 ) );
 		const fill = pow( f, 14.0 ).mul( 0.9 );
 		const top = smoothstep( - 0.1, 1.0, dir.y ).mul( 0.02 );
-		return velvet( dir ).add( vec3( 1.0, 0.9, 0.78 ).mul( key ) ).add( vec3( 0.45, 0.72, 1.0 ).mul( fill.add( top ) ) );
+		return velvetLite( dir ).add( vec3( 1.0, 0.9, 0.78 ).mul( key ) ).add( vec3( 0.45, 0.72, 1.0 ).mul( fill.add( top ) ) );
 
 	} );
 
@@ -169,7 +180,7 @@ export function createIceMaterial( studio, tex, P, debug = '' ) {
 		const oR = through( S.ior.sub( S.disp ) );
 		const oG = through( S.ior );
 		const oB = through( S.ior.add( S.disp ) );
-		const trans = vec3( envT( oR.out, I ).x, envT( oG.out, I ).y, envT( oB.out, I ).z );
+		const trans = vec3( envT( oR.out, I ).x, envT( oG.out, I ).y, envT( oB.out, I ).z ).add( studio.velvet( oG.out ) );
 
 		// Beer–Lambert: red absorbed first → faint blue-cyan in thick ribs
 		const cosT = max( abs( dot( oG.t1, Pn ) ), 0.3 );

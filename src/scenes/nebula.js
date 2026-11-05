@@ -95,8 +95,8 @@ export default {
 		camera.near = 0.05;
 		camera.far = 3000;
 		camera.updateProjectionMatrix();
-		camera.position.set( 1.0, - 1.2, 15.2 );
-		controls.target.set( 0.2, - 0.6, - 1.6 );
+		camera.position.set( 1.0, - 2.6, 15.0 );
+		controls.target.set( 0.2, - 0.4, - 1.6 );
 		controls.minDistance = 4;
 		controls.maxDistance = 40;
 		controls.enablePan = true;
@@ -256,7 +256,7 @@ export default {
 
 				} )();
 				const col = vec4( starsTex.rgb.add( grade ), 1.0 );
-				bloomNode = bloom( col, 0.55, 0.62, 0.0 );
+				bloomNode = bloom( col, 0.4, 0.55, 0.0 );
 				return col.add( bloomNode );
 
 			},

@@ -19,7 +19,7 @@
 import * as THREE from 'three/webgpu';
 import {
 	Fn, If, Loop, float, uint, vec2, vec4, uvec2, cos, sin, exp, dot, pow, min, max, clamp, sqrt, atan, length, smoothstep, select,
-	instanceIndex, localId, workgroupId, workgroupArray, workgroupBarrier, instancedArray, storage, uniform, textureStore, hash, atomicAdd,
+	array, instanceIndex, localId, workgroupId, workgroupArray, workgroupBarrier, instancedArray, storage, uniform, textureStore, hash, atomicAdd,
 } from 'three/tsl';
 
 const cmul = ( a, b ) => vec2( a.x.mul( b.x ).sub( a.y.mul( b.y ) ), a.x.mul( b.y ).add( a.y.mul( b.x ) ) );
@@ -269,6 +269,10 @@ export class SchrodingerSolver {
 			this.rowLast = this._rowKernel( 'last' );
 			this.col = this._colKernel();
 
+		} else if ( this.fft === 'line' ) {
+
+			this._buildLineFFT();
+
 		} else {
 
 			this._buildGlobalFFT();
@@ -420,6 +424,103 @@ export class SchrodingerSolver {
 		pass( 0, + 1, 0, 2 ); // row IFFT, V/2 on store
 		this.stockhamStep = stages;
 		variants.clear();
+
+	}
+
+	// Software-rasteriser path: one invocation transforms a whole row/column held in a private array (no barriers, no
+	// shared memory, twiddles from a table). Same fusion and bit-reversed k-space as the shared-memory kernels.
+	_buildLineFFT() {
+
+		const { N, H, L, psi, u } = this;
+		const tw = new Float32Array( H * 2 );
+		for ( let m = 0; m < H; m ++ ) {
+
+			tw[ m * 2 ] = Math.cos( - 2 * Math.PI * m / N );
+			tw[ m * 2 + 1 ] = Math.sin( - 2 * Math.PI * m / N );
+
+		}
+
+		this.twiddle = instancedArray( tw, 'vec2' ).setName( 'twiddle' );
+
+		const stages = ( a, sign, dif ) => {
+
+			const order = [];
+			for ( let s = 0; s < L; s ++ ) order.push( s );
+			if ( dif ) order.reverse();
+			for ( const s of order ) {
+
+				const half = 1 << s;
+				Loop( { start: uint( 0 ), end: uint( H ), type: 'uint', condition: '<' }, ( { i: t } ) => {
+
+					const k = t.bitAnd( half - 1 );
+					const j0 = t.mul( 2 ).sub( k ).toVar();
+					const j1 = j0.add( half ).toVar();
+					const x0 = a.element( j0 ).toVar(), x1 = a.element( j1 ).toVar();
+					const w0 = this.twiddle.element( k.shiftLeft( L - 1 - s ) );
+					const w = sign < 0 ? w0 : vec2( w0.x, w0.y.negate() );
+					if ( dif ) {
+
+						a.element( j0 ).assign( x0.add( x1 ) );
+						a.element( j1 ).assign( cmul( x0.sub( x1 ), w ) );
+
+					} else {
+
+						const bw = cmul( x1, w ).toVar();
+						a.element( j0 ).assign( x0.add( bw ) );
+						a.element( j1 ).assign( x0.sub( bw ) );
+
+					}
+
+				} );
+
+			}
+
+		};
+
+		const kernel = ( axis, mode ) => Fn( () => {
+
+			const line = instanceIndex;
+			const a = array( 'vec2', N ).toVar( 'line' );
+			const at = ( p ) => axis === 'row' ? line.mul( N ).add( p ) : p.mul( N ).add( line );
+			const each = ( fn ) => Loop( { start: uint( 0 ), end: uint( N ), type: 'uint', condition: '<' }, ( { i } ) => fn( i ) );
+
+			each( ( i ) => {
+
+				const g = at( i ).toVar();
+				if ( mode === 'first' ) a.element( i ).assign( cmul( psi.element( g ), this._potFactor( g, u.half ) ) );
+				else a.element( i ).assign( psi.element( g ) );
+
+			} );
+
+			if ( axis === 'row' ) {
+
+				if ( mode !== 'first' ) {
+
+					stages( a, + 1, false );
+					const tau = mode === 'mid' ? u.full : u.half;
+					each( ( i ) => a.element( i ).assign( cmul( a.element( i ), this._potFactor( at( i ), tau ) ) ) );
+
+				}
+
+				if ( mode !== 'last' ) stages( a, - 1, true );
+
+			} else {
+
+				stages( a, - 1, true );
+				const kl = this.ktab.element( line ).toVar();
+				each( ( i ) => a.element( i ).assign( cmul( a.element( i ), cmul( kl, this.ktab.element( i ) ) ) ) );
+				stages( a, + 1, false );
+
+			}
+
+			each( ( i ) => psi.element( at( i ) ).assign( a.element( i ) ) );
+
+		} )().compute( N, [ 4 ] ).setName( `tdse-line-${axis}-${mode}` );
+
+		this.rowFirst = kernel( 'row', 'first' );
+		this.rowMid = kernel( 'row', 'mid' );
+		this.rowLast = kernel( 'row', 'last' );
+		this.col = kernel( 'col', 'col' );
 
 	}
 
@@ -644,7 +745,7 @@ export class SchrodingerSolver {
 		const nodes = [ ...( this.stockhamStep || [] ), this.rowFirst, this.rowMid, this.rowLast, this.col, this.initPacket, this.zero, this.normPass, this.derive,
 			this.paint, this.detect, this.clearHits, this.mistStep ];
 		for ( const n of nodes ) n?.dispose?.();
-		for ( const b of [ this.psi, this.psiB, this.pot, this.ktab, this.rowSum, this.rng, this.hits, this.mist ] ) b?.value?.dispose?.();
+		for ( const b of [ this.twiddle, this.psi, this.psiB, this.pot, this.ktab, this.rowSum, this.rng, this.hits, this.mist ] ) b?.value?.dispose?.();
 		this.counterAttr.dispose?.();
 		this.field.dispose();
 		this._lists.clear();

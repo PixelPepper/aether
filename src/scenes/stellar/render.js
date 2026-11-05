@@ -279,7 +279,7 @@ export function createRender( ctx, fluid, cfg ) {
 		},
 		sync() {
 
-			return renderer.readRenderTargetPixelsAsync( accRT[ 1 - accIndex ], 0, 0, 2, 2 );
+			return renderer.readRenderTargetPixelsAsync( accRT[ accIndex ], 0, 0, 2, 2 );
 
 		},
 		resetHistory() {
