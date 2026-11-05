@@ -375,11 +375,11 @@ export class SnowLattice {
 	/** Async stats readback (radius in cells, attached cells, crystal mass). Non-blocking; at most one in flight. */
 	poll() {
 
-		if ( this._pending ) return null;
+		if ( this._pending ) return this._promise;
 		this._pending = true;
 		const serial = this._readSerial;
 		const stepsAt = this.steps;
-		return this.renderer.getArrayBufferAsync( this.statsAttr ).then( ( buf ) => {
+		this._promise = this.renderer.getArrayBufferAsync( this.statsAttr ).then( ( buf ) => {
 
 			if ( serial !== this._readSerial ) return null;
 			const a = new Uint32Array( buf );
@@ -393,6 +393,7 @@ export class SnowLattice {
 			this._pending = false;
 
 		} );
+		return this._promise;
 
 	}
 

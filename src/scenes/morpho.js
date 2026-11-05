@@ -34,6 +34,17 @@ export default {
 		if ( params.has( 'grid' ) ) tierCfg.G = Math.max( 32, Math.round( parseInt( params.get( 'grid' ) ) / 8 ) * 8 );
 		const G = tierCfg.G;
 
+		const DBG = params.has( 'mdebug' );
+		const t00 = performance.now();
+		const gpuIdle = () => renderer.backend.device?.queue.onSubmittedWorkDone();
+		const log = async ( msg, wait = true ) => {
+
+			if ( ! DBG ) return;
+			if ( wait ) await gpuIdle();
+			console.log( `[morpho] ${msg} @ ${( ( performance.now() - t00 ) / 1000 ).toFixed( 2 )}s` );
+
+		};
+
 		// ── simulation ──
 		const sim = createSim( renderer, G );
 		const su = sim.u;
@@ -106,20 +117,29 @@ export default {
 
 		// ── init: seed and pre-grow so the sculpture is already structured on the first frame ──
 		reseed( true );
+		await log( 'seeded' );
 		const warp = parseInt( params.get( 'warp' ) || '0' );
-		const pre = tierCfg.prerun + warp;
+		const pre = Math.max( 0, ( params.has( 'prerun' ) ? parseInt( params.get( 'prerun' ) ) : tierCfg.prerun ) + warp );
 		const CHUNK = 40;
 		for ( let i = 0; i < pre; i += CHUNK * 2 ) {
 
 			const list = [];
 			for ( let j = 0; j < CHUNK && i + j * 2 < pre; j ++ ) list.push( sim.stepAB, sim.stepBA );
 			renderer.compute( list );
+			if ( i === 0 ) await log( `first ${list.length} iterations` );
 			if ( ( i / ( CHUNK * 2 ) ) % 4 === 3 ) await new Promise( ( r ) => setTimeout( r, 0 ) );
 
 		}
 
+		await log( `pre-run ${pre} iterations` );
+		// prime the growth-glow history so the pre-grown structure does not flash on the first frame
+		const gain = su.glowGain.value;
+		su.glowGain.value = 0;
 		renderer.compute( [ sim.bake, sim.occKernel, sim.distKernel ] );
-		await renderer.computeAsync( sim.bake );
+		await gpuIdle();
+		su.glowGain.value = gain;
+		await log( 'baked' );
+		let frameNo = 0;
 
 		// ── camera: slow museum turntable ──
 		camera.position.set( 2.75, 0.85, 2.55 );
@@ -225,6 +245,8 @@ export default {
 				su.fade.value = Math.exp( - dt / 0.6 );
 				list.push( sim.bake, sim.occKernel, sim.distKernel );
 				renderer.compute( list );
+				if ( DBG && frameNo < 4 ) log( `frame ${frameNo} compute (${list.length} dispatches)` );
+				frameNo ++;
 
 				// material crossfade
 				const k = Math.min( 1, dt * 3 );

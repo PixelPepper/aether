@@ -40,6 +40,9 @@ export default {
 
 		if ( prm.has( 'bodies' ) ) T.nm = Math.max( 512, Math.round( parseFloat( prm.get( 'bodies' ) ) / T.wg ) * T.wg );
 
+		const DBG = prm.has( 'dbg' );
+		const t00 = performance.now();
+		const dlog = ( ...a ) => DBG && console.log( `[collision ${( ( performance.now() - t00 ) / 1000 ).toFixed( 1 )}s]`, ...a );
 		const layout = planLayout( tier, T.nm, T.nt );
 		const box = 30;
 		const gridMin = new THREE.Vector3( - box / 2, - box / 2, - box / 2 );
@@ -51,7 +54,7 @@ export default {
 
 		const cfg = {
 			...T, nGas: layout.nGas, gridMin, box, densNorm: 1 / countRef, sfBase,
-			clusterLum: 0.0016,
+			clusterLum: 0.0016 * Math.pow( 28 / T.knots, 0.8 ),
 			gasLum: 0.07 / gasPerGal,
 		};
 
@@ -59,7 +62,7 @@ export default {
 		const B = sim.buffers, U = sim.U;
 		const R = createRenderers( sim, {
 			nt: T.nt, nm: T.nm, nGas: layout.nGas, exposure: 9.0, starSize: T.starSize, minPx: T.minPx,
-			glowSize: 0.16, glowGain: 0.0013, dmSize: 0.9, dmExposure: 0.9,
+			glowSize: 0.16, glowGain: 0.0013 * Math.pow( 28 / T.knots, 0.5 ), dmSize: 0.9, dmExposure: 0.9,
 		} );
 
 		const scene = new THREE.Scene();
@@ -197,6 +200,7 @@ export default {
 		// throw along the pointer ray: aim at the depth of the orbit target, start ~11 units in front of it
 		function throwAt( ndcX, ndcY, kind, lateral = null ) {
 
+			camera.updateMatrixWorld();
 			_ray.setFromCamera( { x: ndcX, y: ndcY }, camera );
 			const dir = _ray.ray.direction;
 			camera.getWorldDirection( _f );
@@ -334,8 +338,11 @@ export default {
 		}
 
 		// ───────────────────────── boot ─────────────────────────
+		dlog( 'built nodes' );
 		await restart();
+		dlog( 'restart done' );
 		await renderer.computeAsync( sim.shade );
+		dlog( 'shade done' );
 
 		// debug: pre-advance the simulation (sim time units) before the first frame
 		const warp = prm.has( 'warp' ) ? parseFloat( prm.get( 'warp' ) ) : 0;
@@ -422,6 +429,13 @@ export default {
 
 				if ( restarting ) return;
 				frameNo ++;
+				if ( DBG ) {
+
+					window.__dbgFrame = frameNo;
+					if ( frameNo < 4 ) dlog( 'frame', frameNo );
+
+				}
+
 				updatePx();
 				if ( ! P.paused && P.timeScale > 0 ) {
 

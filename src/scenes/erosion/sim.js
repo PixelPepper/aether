@@ -90,7 +90,7 @@ export class ErosionSim {
 			Ks: uniform( 0.035 ),
 			Kd: uniform( 0.06 ),
 			Ke: uniform( 0.0016 ),
-			dRef: uniform( 0.6 ),
+			dRef: uniform( 0.022 * grid ), // depth (≈0.022 world) at which channel flow reaches full transport capacity
 			vmax: uniform( 1.2 ),
 			minTilt: uniform( 0.035 ),
 			softRef: uniform( 1.5 ),

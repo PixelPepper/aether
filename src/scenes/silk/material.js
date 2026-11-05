@@ -94,12 +94,12 @@ export function createSilkMaterial( { threads = 700 } = {} ) {
 	const st = uv().mul( threads );
 
 	// screen-space LOD: fade the thread-level structure once a thread is smaller than ~1.5 px
-	const lod = Fn( () => {
+	const lodF = () => {
 
 		const w = max( fwidth( st.x ), fwidth( st.y ) );
 		return clamp( float( 1.6 ).sub( w.mul( 1.2 ) ), 0, 1 );
 
-	} )().toVar( 'weaveLod' );
+	};
 
 	// plain weave: warp (along v) over weft (along u) in a checkerboard
 	const cell = floor( st );
@@ -107,14 +107,14 @@ export function createSilkMaterial( { threads = 700 } = {} ) {
 	const warpTop = fract( cell.x.add( cell.y ).mul( 0.5 ) ).lessThan( 0.25 );
 
 	// weft slubs (dupioni): irregular thicker weft threads → streaks running along u
-	const slub = Fn( () => {
+	const slubF = () => {
 
 		const v = uv().y.mul( threads * 0.5 ).add( sheetId.mul( 31.7 ) );
 		const n1 = mx_noise_float( vec2( v, sheetId.mul( 3.1 ) ) );
 		const n2 = mx_noise_float( vec2( uv().x.mul( 6.0 ), v.mul( 0.5 ) ) );
 		return smoothstep( 0.25, 0.75, n1 ).mul( smoothstep( - 0.2, 0.6, n2 ) );
 
-	} )().toVar( 'slub' );
+	};
 
 	const mat = new SilkNodeMaterial( { side: THREE.DoubleSide } );
 
@@ -131,13 +131,13 @@ export function createSilkMaterial( { threads = 700 } = {} ) {
 		const shift = orient.mul( float( 1 ).sub( nW ) ).mul( 0.5 ).add( 0.5 );
 		const far = mix( U.warp, U.weft, shift.mul( 0.8 ).add( 0.1 ) );
 		const near = select( warpTop, U.warp, U.weft );
-		const base = mix( far, mix( far, near, 0.55 ), lod );
-		const sl = slub.mul( 0.16 ).add( 0.94 );
+		const base = mix( far, mix( far, near, 0.55 ), lodF() );
+		const sl = slubF().mul( 0.16 ).add( 0.94 );
 		return vec4( base.mul( sl ), 1 );
 
 	} )();
 
-	mat.roughnessNode = U.rough.mul( float( 1 ).sub( slub.mul( 0.12 ) ) );
+	mat.roughnessNode = Fn( () => U.rough.mul( float( 1 ).sub( slubF().mul( 0.12 ) ) ) )();
 	mat.metalnessNode = float( 0 );
 	mat.specularIntensityNode = float( 1 );
 	mat.iorNode = float( 1.55 ); // fibroin
@@ -146,7 +146,7 @@ export function createSilkMaterial( { threads = 700 } = {} ) {
 	mat.anisotropyNode = Fn( () => {
 
 		const near = select( warpTop, vec2( 1, 0 ), vec2( 0, 1 ) );
-		return mix( vec2( 1, 0 ), near, lod ).mul( 0.62 );
+		return mix( vec2( 1, 0 ), near, lodF() ).mul( 0.62 );
 
 	} )();
 
@@ -171,7 +171,7 @@ export function createSilkMaterial( { threads = 700 } = {} ) {
 		// warp-top cell: ridge across u, crimp along v; weft-top: the opposite
 		const gu = select( warpTop, cx.mul( sy.mul( 0.7 ).add( 0.3 ) ), sx.mul( cy ).mul( 0.0 ).add( cx.mul( sy ).mul( 0.25 ) ) );
 		const gv = select( warpTop, cy.mul( sx ).mul( 0.25 ), cy.mul( sx.mul( 0.7 ).add( 0.3 ) ) );
-		const k = lod.mul( 0.22 );
+		const k = lodF().mul( 0.22 );
 		const n = normalView.sub( tangentView.mul( gu.mul( k ) ) ).sub( bitangentView.mul( gv.mul( k ) ) );
 		return normalize( n );
 

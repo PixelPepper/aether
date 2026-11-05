@@ -30,6 +30,9 @@ export default {
 	async create( ctx ) {
 
 		const { renderer, camera, controls, tier } = ctx;
+		const DBG = ctx.params.has( 'qdebug' );
+		const T0 = performance.now();
+		const mark = ( s ) => DBG && console.warn( `[quantum] ${s} @ ${( performance.now() - T0 ).toFixed( 0 )}ms` );
 		const cfg = TIERS[ Math.max( 0, Math.min( 2, tier ) ) ];
 		const N = cfg.N;
 		const disposables = [];
@@ -58,7 +61,9 @@ export default {
 
 		// ───────────────────────── scene ─────────────────────────
 		const scene = new THREE.Scene();
+		mark( 'solver built' );
 		const envRT = buildStudioEnv( renderer );
+		mark( 'env built' );
 		scene.environment = envRT.texture;
 		scene.environmentIntensity = 0.9;
 		scene.backgroundNode = backgroundNode();
@@ -273,6 +278,8 @@ export default {
 		// ───────────────────────── initial state ─────────────────────────
 		applyScenario( params.scenario );
 		renderer.compute( solver.clearHits );
+		if ( DBG ) await renderer.backend.device.queue.onSubmittedWorkDone();
+		mark( 'scenario applied' );
 		// already in flight on frame 1; in capture mode let the experiment run a while so the still shows the build-up
 		if ( ctx.shot ) {
 
@@ -295,6 +302,8 @@ export default {
 		}
 
 		renderer.compute( solver.derive );
+		if ( DBG ) await renderer.backend.device.queue.onSubmittedWorkDone();
+		mark( 'pre-roll done' );
 
 		// ───────────────────────── camera ─────────────────────────
 		camera.fov = 36;
@@ -488,6 +497,7 @@ export default {
 
 			clock += dt;
 			frameNo ++;
+			if ( DBG && frameNo < 6 ) mark( 'frame ' + frameNo );
 			applyPaint();
 
 			const steps = ctx.shot ? cfg.steps : Math.max( 1, Math.min( cfg.steps * 2, Math.round( cfg.steps * dt * 60 ) ) );

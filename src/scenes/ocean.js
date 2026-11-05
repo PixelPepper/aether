@@ -233,18 +233,21 @@ export default {
 
 			update( dt, t ) {
 
-				if ( DBG ) {
+				const fi = ( this._fi = ( this._fi || 0 ) + 1 );
+				const mark = ( label ) => {
 
-					const fi = ( this._fi = ( this._fi || 0 ) + 1 );
+					if ( ! DBG ) return;
 					renderer.backend.device?.queue.onSubmittedWorkDone().then( () => {
 
 						const now = performance.now();
-						console.log( `[ocean] gpu frame ${fi} done +${( now - dbgT ).toFixed( 0 )} ms` );
+						console.log( `[ocean] f${fi} ${label} +${( now - dbgT ).toFixed( 0 )} ms` );
 						dbgT = now;
 
 					} );
 
-				}
+				};
+
+				mark( 'prev post/composite' );
 
 				clockT = t;
 				U.time.value = t;
@@ -326,7 +329,8 @@ export default {
 				accum -= n;
 				n = Math.min( n, substeps * 2 );
 				if ( ctx.shot ) n = substeps;
-				sim.step( n );
+				if ( ! ctx.params.has( 'onosim' ) ) sim.step( n );
+				mark( 'sim' );
 
 				// bioluminescent ambient level (floor pool) follows activity
 				pulse *= Math.exp( - dt * 0.8 );
@@ -335,6 +339,7 @@ export default {
 
 				// ── fluid passes into our own targets (composite happens in the post chain) ──
 				fluid.render();
+				mark( 'fluid passes' );
 
 				statT += dt;
 				if ( statsDirty || statT > 0.5 ) {

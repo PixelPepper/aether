@@ -19,7 +19,7 @@ export function makeRenderUniforms( sim ) {
 		sunCol: uniform( new THREE.Color( 1.0, 0.56, 0.31 ).multiplyScalar( 3.6 ) ),
 		time: uniform( 0 ),
 		snow: uniform( 1.02 ),
-		waterVis: uniform( 0.06 ), // grid-unit depth below which water is just a film
+		waterVis: uniform( 0.0025 / sim.cellW ), // grid-unit depth below which water is just a film (≈0.0025 world)
 		fogDen: uniform( 0.055 ),
 		fogFall: uniform( 1.35 ),
 		storm: uniform( new THREE.Vector3( 0, 2.1, 0 ) ),

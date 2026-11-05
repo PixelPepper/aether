@@ -390,7 +390,7 @@ export function createAtmosphere( U, cfg ) {
 		const w0 = 0.5 / AD;
 		const weight = w.div( w0 ).clamp( 0, 1 );
 		const uvw = vec3( ndc.mul( 0.5 ).add( 0.5 ), max( w, w0 ) );
-		return texture3D( apLUT, uvw, int( 0 ) ).rgb.mul( weight );
+		return texture3D( apLUT, uvw ).level( 0 ).rgb.mul( weight );
 
 	};
 

@@ -47,10 +47,15 @@ export default {
 		let seed = parseFloat( ctx.params.get( 'seed' ) || '1' );
 		const prerunTicks = tier >= 2 ? 3200 : tier === 1 ? 1600 : 360;
 		const prerunBatch = tier >= 2 ? 160 : tier === 1 ? 80 : 60;
+		const dbg = ctx.params.has( 'dbg' );
+		const T0 = performance.now();
+		const log = ( m ) => dbg && console.warn( `[erosion] ${m} @ ${( ( performance.now() - T0 ) / 1000 ).toFixed( 2 )}s` );
 		await sim.init( seed );
-		// idle storm during the pre-run so the first frame already has a fresh rain scar
-		await sim.prerun( prerunTicks, prerunBatch );
+		log( 'init' );
+		await sim.prerun( parseInt( ctx.params.get( 'prerun' ) ?? prerunTicks ), prerunBatch );
+		log( 'prerun' );
 		let low = await sim.readLow();
+		log( 'readback' );
 
 		// ── camera: low aerial, sun grazing from the left, slow orbit ──
 		const saved = {
@@ -212,7 +217,7 @@ export default {
 		}
 
 		// ── stats ───────────────────────────────────────────
-		let statT = 1, readT = 0, reading = false;
+		let statT = 1, readT = 0, reading = false, frameN = 0;
 		const pushStats = () => ctx.setStats( [
 			[ 'grid', `${N}² · ${( N * N / 1e6 ).toFixed( 2 )}M cells` ],
 			[ 'iterations / frame', String( params.iters + ( boost > 0 ? Math.min( boost, params.iters * 4 ) : 0 ) ) ],
@@ -226,6 +231,12 @@ export default {
 			update( dt, t ) {
 
 				U.time.value = t;
+				if ( dbg ) {
+
+					frameN ++;
+					log( `frame ${frameN}` );
+
+				}
 
 				// storm: follows the pointer while raining, otherwise wanders over the range
 				let hit = null;

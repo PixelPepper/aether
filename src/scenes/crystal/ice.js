@@ -45,7 +45,7 @@ export function createStudio() {
 	// ── dark velvet backdrop as a function of view-space direction ──
 	const velvet = Fn( ( [ dirIn ] ) => {
 
-		const d = normalize( dirIn );
+		const d = normalize( dirIn.add( vec3( 0, 0, 1e-5 ) ) ); // guard: zero vector from a failed refraction
 		const g = smoothstep( - 0.45, 0.55, d.y.mul( 0.85 ).sub( d.x.mul( 0.4 ) ) );
 		const base = mix( vec3( 0.0020, 0.0024, 0.0065 ), vec3( 0.0085, 0.0105, 0.026 ), g );
 		const dy = d.y.sub( 0.04 );
@@ -102,13 +102,13 @@ const heightOf = ( s ) => s.y.mul( smoothstep( 0.5, 0.85, s.x ) );
 /**
  * Ice material for one face of one flake. `P` holds per-flake uniforms (fade, now, seed).
  */
-export function createIceMaterial( studio, tex, P ) {
+export function createIceMaterial( studio, tex, P, debug = '' ) {
 
 	const { S, envT, envR } = studio;
 	const mat = new THREE.MeshBasicNodeMaterial();
 	mat.side = THREE.FrontSide;
 
-	mat.positionNode = Fn( () => {
+	if ( debug !== 'tex' ) mat.positionNode = Fn( () => {
 
 		const s = texture( tex, uv() ).level( 0 );
 		return vec3( positionLocal.x, positionLocal.y, heightOf( s ).mul( S.thick ) );
@@ -134,6 +134,8 @@ export function createIceMaterial( studio, tex, P ) {
 
 		} );
 
+		if ( debug === 'tex' ) return vec4( s.x.mul( 0.2 ), s.y.mul( 0.5 ), s.w.add( s.z.mul( 0.02 ) ), 1 );
+
 		const h = heightOf( s );
 		const e = S.texel.mul( S.nrmR );
 		const hx = heightOf( texture( tex, uv0.add( vec2( e, 0 ) ) ) ).sub( heightOf( texture( tex, uv0.sub( vec2( e, 0 ) ) ) ) );
@@ -158,7 +160,9 @@ export function createIceMaterial( studio, tex, P ) {
 			const r1 = reflect( t1, Nb );
 			const t3 = refract( r1, N.negate(), eta );
 			const tir = dot( t2, t2 ).lessThan( 0.01 );
-			return { t1, out: select( tir, t3, t2 ), r1, t3 };
+			const o = select( tir, t3, t2 );
+			// double total internal reflection (steep facets): fall back to the mirror direction
+			return { t1, out: select( dot( o, o ).lessThan( 0.01 ), reflect( I, N ), o ), r1, t3 };
 
 		};
 
@@ -236,7 +240,8 @@ export function createHaloMaterial( studio, tex, P ) {
 		const hexd = max( ap.x.mul( 0.8660254 ).add( ap.y.mul( 0.5 ) ), ap.y );
 		const rr = P.ring;
 		const ringW = 0.035;
-		const ring = exp( hexd.sub( rr ).div( ringW ).pow( 2 ).negate() ).mul( S.flash ).mul( smoothstep( 0.0, 0.15, rr ) );
+		const dr = hexd.sub( rr ).div( ringW );
+		const ring = exp( dr.mul( dr ).negate() ).mul( S.flash ).mul( smoothstep( 0.0, 0.15, rr ) );
 		const col = front.add( S.flashCol.mul( ring ).mul( 0.9 ) );
 		return vec4( col.mul( float( 1 ).sub( P.fade ) ), 1 );
 

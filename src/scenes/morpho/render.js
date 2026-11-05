@@ -371,7 +371,7 @@ export function createRaymarch( sim, opts ) {
 
 		If( hit.y.greaterThan( 0.5 ), () => {
 
-			col.assign( shade( ro.add( rd.mul( hit.x ) ), rd ) );
+			col.assign( shade( ro.add( rd.mul( hit.x ) ).toConst(), rd ) );
 
 		} ).ElseIf( tFloor.lessThan( 1e8 ), () => {
 
@@ -392,7 +392,7 @@ export function createRaymarch( sim, opts ) {
 				const ph = pf.add( rr.mul( rh.x ) );
 				const height = ph.y.sub( u.floorY );
 				const fadeR = exp( height.mul( - 1.6 ) ).mul( 0.85 ).add( 0.15 );
-				fl.addAssign( shadeLite( ph, rr ).mul( fres.mul( 3.0 ).add( 0.08 ) ).mul( fadeR ) );
+				fl.addAssign( shadeLite( ph.toConst(), rr ).mul( fres.mul( 3.0 ).add( 0.08 ) ).mul( fadeR ) );
 
 			} ).Else( () => {
 

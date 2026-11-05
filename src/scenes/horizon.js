@@ -21,7 +21,7 @@ import * as THREE from 'three/webgpu';
 import {
 	Fn, If, Loop, Break, Return, uniform, uniformArray, instancedArray, globalId, vec2, vec3, vec4, uvec2, float, uint,
 	texture, textureStore, screenUV, select, mix, clamp, max, abs, sqrt, pow, log, exp, length, normalize, dot,
-	smoothstep, atan, floor, round,
+	smoothstep, atan, floor, round, tanh,
 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { createLUT, writeDiskProfile, LUT_N, T_MIN, T_MAX, R_MAX, relLogLum } from './horizon/blackbody.js';
@@ -45,18 +45,25 @@ export default {
 	async create( ctx ) {
 
 		const { renderer, camera, controls } = ctx;
-		const tier = TIERS[ Math.max( 0, Math.min( 2, ctx.tier ) ) ];
+		// The shell's adapter sniffing can miss SwiftShader in headless Chromium (empty adapter info), so an
+		// un-overridden headless capture is treated as the software tier.
+		const tierIdx = Math.max( 0, Math.min( 2, ctx.params.has( 'tier' ) ? ctx.tier : ( ctx.shot || ctx.isSoftware ? 0 : ctx.tier ) ) );
+		const tier = TIERS[ tierIdx ];
 		const scene = new THREE.Scene(); // everything is drawn by compute + post(); the scene pass stays unused
 
 		// ───────────────── camera ─────────────────
-		camera.fov = 38; camera.near = 0.1; camera.far = 1000; camera.updateProjectionMatrix();
+		camera.fov = 36; camera.near = 0.1; camera.far = 1000; camera.updateProjectionMatrix();
 		{
 
-			const dist = 27, el = 7.5 * DEG, az = 0.55;
+			const dist = 32, el = 7 * DEG, az = 0.55;
 			camera.position.set( Math.sin( az ) * Math.cos( el ) * dist, Math.sin( el ) * dist, Math.cos( az ) * Math.cos( el ) * dist );
 
 		}
 
+		const ctlSaved = {
+			minDistance: controls.minDistance, maxDistance: controls.maxDistance, enablePan: controls.enablePan,
+			autoRotateSpeed: controls.autoRotateSpeed, rotateSpeed: controls.rotateSpeed, zoomSpeed: controls.zoomSpeed,
+		};
 		controls.target.set( 0, 0, 0 );
 		controls.minDistance = 4.5; // r ≳ 4.4 M: well outside the horizon and the ergosphere (static observer exists)
 		controls.maxDistance = 70;
@@ -71,14 +78,20 @@ export default {
 		const P = {
 			spin: 0.9,
 			tilt: 0,
-			tPeak: 9000,
+			tPeak: 7000,
 			redshift: 2,
 			quality: tier.k,
-			exposure: 1.0,
-			rOut: 22,
+			exposure: 0.8,
+			rOut: 20,
 			timeScale: 10,
 			stars: 1.0,
+			corona: 0.12,
 		};
+
+		const dbgNum = ( k, d ) => ( ctx.params.has( k ) ? parseFloat( ctx.params.get( k ) ) : d );
+		P.corona = dbgNum( 'hzcorona', P.corona ); P.tPeak = dbgNum( 'hzT', P.tPeak ); P.exposure = dbgNum( 'hzexp', P.exposure );
+		P.spin = dbgNum( 'hzspin', P.spin ); P.redshift = dbgNum( 'hzmode', P.redshift ); P.tilt = dbgNum( 'hztilt', P.tilt );
+		const bloomStrength = dbgNum( 'hzbloom', 0.3 );
 
 		const U = {
 			W: uniform( 1, 'uint' ), H: uniform( 1, 'uint' ),
@@ -93,12 +106,16 @@ export default {
 			rIsco: uniform( 2.32 ), rOut: uniform( P.rOut ), steps: uniform( tier.steps, 'int' ),
 			time: uniform( 0 ), tPeak: uniform( P.tPeak ), lum: uniform( 1 ), mode: uniform( P.redshift ),
 			tau: uniform( 1.1 ), exposure: uniform( P.exposure ), b2w: uniform( new THREE.Matrix3() ),
-			pixAng: uniform( 0.003 ), sky: uniform( new THREE.Vector4( 0.05, 1, 0, 0 ) ),
-			tInsp: uniform( 650 ), period: uniform( 160 ), streak: uniform( 0.06 ), streakStride: uniform( 0.004 ),
+			pixAng: uniform( 0.003 ), sky: uniform( new THREE.Vector4( 0.12, 1, 0, 0 ) ),
+			tInsp: uniform( 650 ), period: uniform( 0.75 ), streak: uniform( 0.022 ), streakStride: uniform( 0.004 ),
 			ilStep: uniform( 1, 'uint' ), ilOff: uniform( new THREE.Vector2( 0, 0 ) ),
+			corona: uniform( P.corona ),
+			// a bright blue giant almost exactly behind the hole along the default orbit: watch it split into two
+			// images and close into an Einstein ring as the camera drifts past the alignment
+			beacon: uniform( new THREE.Vector4( - Math.sin( 0.84 ) * Math.cos( 7 * DEG ), - Math.sin( 7 * DEG ), - Math.cos( 0.84 ) * Math.cos( 7 * DEG ), 4.0e-4 ) ),
 		};
 		// tier 0 (software rasteriser): trace a 2×2-interleaved quarter of the pixels per frame (progressive refinement)
-		const IL = ctx.tier === 0 ? 2 : 1;
+		const IL = tierIdx === 0 ? 2 : 1;
 		U.ilStep.value = IL;
 		let ilFrame = 0;
 		const blobs = Array.from( { length: NB }, () => new THREE.Vector4( 0, 0, 0, 0 ) );
@@ -273,6 +290,34 @@ export default {
 
 				} );
 
+				// ── optically thin warm corona / thick-disk atmosphere: Gaussian layer of scale height H = h·r,
+				//    integrated exactly (erf) along the straight chord of this step so coarse steps cannot band ──
+				If( U.corona.greaterThan( 0 ), () => {
+
+					const mid = x.add( xn ).mul( 0.5 );
+					const rc = length( mid.xy );
+					const Hs = rc.mul( 0.11 ).add( 0.25 );
+					If( abs( mid.z ).lessThan( Hs.mul( 3.5 ) ).and( rc.greaterThan( U.rIsco.mul( 1.1 ) ) ).and( rc.lessThan( U.rOut ) ), () => {
+
+						const seg = xn.sub( x );
+						const ds = length( seg );
+						const inv = float( 1 ).div( Hs.mul( Math.SQRT2 ) );
+						const z0 = x.z.mul( inv ), z1 = xn.z.mul( inv );
+						const dz = z1.sub( z0 );
+						const erfA = ( v ) => tanh( v.mul( v.mul( v ).mul( 0.1009 ).add( 1.1283791 ) ) );
+						const exact = erfA( z1 ).sub( erfA( z0 ) ).div( dz ).mul( 0.8862269 );
+						const colInt = select( abs( dz ).greaterThan( 1e-3 ), exact, exp( z0.mul( z0 ).negate() ) ).mul( ds ); // ∫ exp(−z²/2H²) ds
+						const prof = smoothstep( U.rIsco.mul( 1.1 ), U.rIsco.mul( 2.6 ), rc ).mul( pow( U.rIsco.mul( 2.6 ).div( rc ), 1.3 ) ).mul( smoothstep( U.rOut, U.rOut.mul( 0.5 ), rc ) );
+						const gC = diskG( max( rc, U.rIsco ), E, Lz, U.aP, U.mode );
+						const Tc = U.tPeak.mul( diskProfile( max( rc, U.rIsco.mul( 1.3 ) ) ) ).mul( 1.15 );
+						const dtau = colInt.mul( prof ).mul( U.corona );
+						acc.addAssign( blackbody( Tc.mul( gC ) ).mul( dtau ).mul( trans ) );
+						trans.mulAssign( exp( dtau.mul( - 0.25 ) ) );
+
+					} );
+
+				} );
+
 				vel.assign( xn.sub( x ) );
 				x.assign( xn );
 				p.assign( res.element( 1 ) );
@@ -332,7 +377,7 @@ export default {
 				fp.assign( select( fp.greaterThan( 0 ), fp, U.pixAng.mul( 3 ) ) );
 				fp.assign( clamp( fp, U.pixAng.mul( 0.08 ), 0.6 ) );
 				const dw = normalize( U.b2w.mul( d.xyz ) );
-				sky.assign( skyColor( dw, fp, U.sky ) );
+				sky.assign( skyColor( dw, fp, U.sky, U.beacon ) );
 
 			} );
 
@@ -361,7 +406,7 @@ export default {
 				const uvs = vec2( clamp( uv0.x.add( fi.mul( U.streakStride ) ), 0, xmax ), uv0.y );
 				const s = texture( outTex, uvs ).level( 0 ).xyz;
 				const lum = dot( s, vec3( 0.2126, 0.7152, 0.0722 ) );
-				acc.addAssign( s.mul( max( lum.sub( 1.2 ), 0 ).div( max( lum, 1e-4 ) ) ).mul( w ) );
+				acc.addAssign( s.mul( max( lum.sub( 1.8 ), 0 ).div( max( lum, 1e-4 ) ) ).mul( w ) );
 
 			} );
 			textureStore( streakTex, uvec2( gx, gy ), vec4( acc.mul( 0.16 ), 1 ) );
@@ -404,7 +449,7 @@ export default {
 
 			const uvT = screenUV.mul( U.uvScale );
 			const base = catmullRom( outTex, uvT );
-			bloomNode = bloom( texture( outTex, uvT ), 0.42, 0.55, 0.75 );
+			bloomNode = bloom( texture( outTex, uvT ), bloomStrength, 0.5, 0.85 );
 			const st = texture( streakTex, uvT.mul( 0.5 ) ).xyz.mul( U.streak.mul( 16.0 ) ).mul( vec3( 0.75, 0.85, 1.15 ) );
 			return vec4( base.add( bloomNode.xyz ).add( st ), 1 );
 
@@ -419,6 +464,7 @@ export default {
 		gui.add( P, 'quality', 0.03, 0.2, 0.005 ).name( 'RK4 step (k·r)' ).onChange( ( v ) => U.k.value = v );
 		gui.add( P, 'exposure', 0.1, 5, 0.01 ).name( 'exposure' ).onChange( ( v ) => U.exposure.value = v );
 		gui.add( P, 'rOut', 8, 40, 0.5 ).name( 'disk outer r (M)' ).onChange( ( v ) => U.rOut.value = v );
+		gui.add( P, 'corona', 0, 1.5, 0.01 ).name( 'corona (thick layer)' ).onChange( ( v ) => U.corona.value = v );
 		gui.add( P, 'timeScale', 0, 40, 0.5 ).name( 'time (M / s)' );
 		const actions = { drop: () => spawnRandom() };
 		gui.add( actions, 'drop' ).name( 'inject plasma blob' );
@@ -561,6 +607,9 @@ export default {
 
 		let statT = 0;
 		const dbg = ctx.params.has( 'hzdebug' );
+		const shotFrames = parseInt( ctx.params.get( 'frames' ) || '90' );
+		let shotUpdates = 0;
+		if ( dbg ) console.warn( `[horizon] tier ${tierIdx} (shell ${ctx.tier}) trace ${W}x${H} cap ${capW}x${capH}` );
 		let lastT = performance.now();
 
 		return {
@@ -569,6 +618,9 @@ export default {
 
 			update( dt, t ) {
 
+				// headless capture: the shell keeps calling update() while it waits for the read-back; stop queueing
+				// GPU work once the requested number of frames has been submitted (SwiftShader would never catch up)
+				if ( ctx.shot && ++ shotUpdates > shotFrames ) return;
 				tM += dt * P.timeScale;
 				U.time.value = tM;
 				const rc = updateCamera();
@@ -625,7 +677,7 @@ export default {
 				el.removeEventListener( 'pointerdown', onDown );
 				el.removeEventListener( 'pointerup', onUp );
 				controls.autoRotate = false;
-				controls.enablePan = true;
+				Object.assign( controls, ctlSaved );
 				traceKernel.dispose(); composeKernel.dispose(); streakKernel.dispose();
 				bufCol.value.dispose(); bufDir.value.dispose();
 				outTex.dispose(); streakTex.dispose(); lut.dispose();

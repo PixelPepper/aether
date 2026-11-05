@@ -35,6 +35,8 @@ export default {
 	async create( ctx ) {
 
 		const { renderer, camera, controls, params, tier } = ctx;
+		const LOG = params.has( 'cwlog' ) ? ( ...m ) => console.warn( '[cw]', ( performance.now() / 1000 ).toFixed( 2 ), ...m ) : () => {};
+		LOG( 'create' );
 
 		// ───────────────────────── sizes per tier ─────────────────────────
 		const pow2 = ( v, d ) => {
@@ -374,8 +376,11 @@ export default {
 		controls.update();
 
 		// ───────────────────────── start ─────────────────────────
+		LOG( 'pm built' );
 		regenerate();
+		LOG( 'regenerate submitted' );
 		await renderer.computeAsync( pm.densityList );
+		LOG( 'ic done' );
 		const zt = params.has( 'zt' ) ? parseFloat( params.get( 'zt' ) ) : ( ctx.shot && ! params.has( 'warp' ) ? 1.2 : null );
 		if ( zt !== null && isFinite( zt ) ) {
 
@@ -396,6 +401,7 @@ export default {
 
 		st.fade = ctx.shot ? 1 : 0;
 		await renderer.computeAsync( pm.densityList );
+		LOG( 'warp done', st.steps, st.a );
 
 		let statT = 1;
 		const sizeTxt = `${NL}³ = ${NP.toLocaleString()}`;

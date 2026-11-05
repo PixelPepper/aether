@@ -141,26 +141,35 @@ fn hz_fbm( p0: vec3f, oct: i32 ) -> f32 {
 // Ω(r) = 1/(r^{3/2} + a) advects the pattern; two staggered advection phases are cross-faded (flow-noise trick)
 // so the shear stays bounded while the texture visibly winds into trailing spirals.
 export const diskTurb = wgslFn( /* wgsl */`
-fn disk_turb( r: f32, phi: f32, t: f32, a: f32, period: f32 ) -> f32 {
+fn disk_turb( r: f32, phi: f32, t: f32, a: f32, kappa: f32 ) -> f32 {
 	let om = 1.0 / ( r * sqrt( r ) + a );
+	// advection cycle = kappa local orbits: every radius turns by ≤ 2πκ before its phase is cross-faded,
+	// so the shear between neighbouring radii is real Keplerian shear but cannot wind up indefinitely
+	let period = kappa * 6.2831853 / om;
 	let c = t / period;
 	let f1 = fract( c );
 	let f2 = fract( c + 0.5 );
 	let s1 = floor( c );
 	let s2 = floor( c + 0.5 );
 	let w1 = 1.0 - abs( 2.0 * f1 - 1.0 );
-	let lr = log( r );
-	let ph1 = phi - om * f1 * period;
-	let ph2 = phi - om * f2 * period;
-	let q1 = vec3f( cos( ph1 ) * 1.7, sin( ph1 ) * 1.7, lr * 7.5 + s1 * 3.17 );
-	let q2 = vec3f( cos( ph2 ) * 1.7, sin( ph2 ) * 1.7, lr * 7.5 + s2 * 3.17 + 1.37 );
-	let n1 = hz_fbm( q1 * vec3f( 1.0, 1.0, 1.0 ), 5 );
-	let n2 = hz_fbm( q2, 5 );
 	let w2 = 1.0 - w1;
+	let lr = log( r );
+	let n1 = hz_disk_field( phi - om * f1 * period, lr, s1 * 3.17 );
+	let n2 = hz_disk_field( phi - om * f2 * period, lr, s2 * 3.17 + 1.37 );
 	let n = 0.5 + ( w1 * n1 + w2 * n2 - 0.5 ) / sqrt( w1 * w1 + w2 * w2 );
 	return clamp( n, 0.0, 1.0 );
 }
-`, [ noiseCommon ] );
+`, [ noiseCommon, wgsl( /* wgsl */`
+// co-rotating turbulence: domain-warped fBm on (cos φ, sin φ, ln r) — seamless in φ, features stretched
+// azimuthally (sheared), with a warp so that streaks break into clumps and filaments
+fn hz_disk_field( ph: f32, lr: f32, seed: f32 ) -> f32 {
+	let q = vec3f( cos( ph ) * 2.4, sin( ph ) * 2.4, lr * 5.2 + seed );
+	let w = vec3f( hz_fbm( q * 0.7 + vec3f( 3.1, 7.7, 1.9 ), 3 ), hz_fbm( q * 0.7 + vec3f( 8.3, 2.2, 5.4 ), 3 ), 0.0 ) - 0.5;
+	let n = hz_fbm( q + vec3f( w.xy * 1.6, w.x * 1.2 ), 5 );
+	let fine = hz_vnoise( vec3f( q.xy * 3.1, q.z * 2.3 + 11.0 ) );
+	return clamp( 0.5 + ( n - 0.5 ) * 1.55 + ( fine - 0.5 ) * 0.22, 0.0, 1.0 );
+}
+` ) ] );
 
 // ───────────────────────── sky: Milky-Way band + two star layers ─────────────────────────
 // Stars are discs of fixed solid angle on the celestial sphere, rendered with a Gaussian of width
@@ -221,7 +230,7 @@ fn hz_stars( d: vec3f, fp: f32, N: f32, seed: u32, dens: f32, flux: f32 ) -> vec
 	return mix( col, mean, wm );
 }
 fn hz_galaxy( d: vec3f ) -> vec3f {
-	let ng = normalize( vec3f( 0.22, 0.93, -0.30 ) );
+	let ng = normalize( vec3f( 0.55, 0.62, -0.56 ) );
 	let gc = normalize( cross( ng, vec3f( 0.0, 0.0, 1.0 ) ) );
 	let sb = dot( d, ng );
 	let core = max( dot( d, gc ), 0.0 );
@@ -244,11 +253,14 @@ fn hz_galaxy( d: vec3f ) -> vec3f {
 ` , [ noiseCommon ] );
 
 export const skyColor = wgslFn( /* wgsl */`
-fn sky_color( d: vec3f, fp: f32, prm: vec4f ) -> vec3f {
-	// prm = (galaxy brightness, star brightness, unused, unused)
+fn sky_color( d: vec3f, fp: f32, prm: vec4f, beacon: vec4f ) -> vec3f {
+	// prm = (galaxy brightness, star brightness, unused, unused); beacon = (direction, flux) of one bright blue giant
 	let gal = hz_galaxy( d ) * prm.x;
 	let s1 = hz_stars( d, fp, 210.0, 17u, 0.55, 1.0e-6 * prm.y );
 	let s2 = hz_stars( d, fp, 42.0, 71u, 0.35, 1.6e-5 * prm.y );
-	return gal + s1 + s2;
+	let sig = max( fp * 0.55, 2.5e-4 );
+	let dv = d - beacon.xyz;
+	let bk = hz_tint( 14000.0 ) * beacon.w * prm.y * exp( -0.5 * dot( dv, dv ) / ( sig * sig ) ) / ( 6.2831853 * sig * sig );
+	return gal + s1 + s2 + bk;
 }
 `, [ skyCommon ] );
