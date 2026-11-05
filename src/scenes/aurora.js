@@ -19,7 +19,7 @@ import { createLandscape } from './aurora/terrain.js';
 import { height } from './aurora/height.js';
 
 const TIERS = [
-	{ NX: 256, NY: 48, NZ: 64, electrons: 16384, maxElectrons: 32768, presets: [ 8192, 16384, 32768 ], nSub: 4, probeSamples: 24, maxSteps: 56, maxStepsRefl: 40, stepScale: 1.25, auroraScale: 0.3, reflScale: 0.3, mwW: 512, mwOct: 3 },
+	{ NX: 224, NY: 44, NZ: 56, electrons: 16384, maxElectrons: 32768, presets: [ 8192, 16384, 32768 ], nSub: 4, probeSamples: 24, maxSteps: 56, maxStepsRefl: 40, stepScale: 1.25, auroraScale: 0.3, reflScale: 0.3, mwW: 512, mwOct: 3 },
 	{ NX: 384, NY: 72, NZ: 112, electrons: 262144, maxElectrons: 524288, presets: [ 131072, 262144, 524288 ], nSub: 3, probeSamples: 48, maxSteps: 110, maxStepsRefl: 70, stepScale: 1.1, auroraScale: 0.5, reflScale: 0.4, mwW: 2048, mwOct: 5 },
 	{ NX: 512, NY: 96, NZ: 160, electrons: 1048576, maxElectrons: 2097152, presets: [ 262144, 524288, 1048576, 2097152 ], nSub: 3, probeSamples: 64, maxSteps: 170, maxStepsRefl: 110, stepScale: 1.0, auroraScale: 0.5, reflScale: 0.5, mwW: 2048, mwOct: 5 },
 ];
@@ -60,7 +60,7 @@ export default {
 
 		// ── simulation + sky + landscape ──
 		const emission = createEmission();
-		log( 'start' );
+		log( 'start tier ' + ctx.tier + ' sw ' + ctx.isSoftware + ' ' + JSON.stringify( renderer.backend.adapter?.info || {} ) + ' ' + JSON.stringify( [ renderer.backend.adapter?.info?.vendor, renderer.backend.adapter?.info?.architecture, renderer.backend.adapter?.info?.description, renderer.backend.adapter?.info?.device ] ) );
 		const sim = new AuroraSim( renderer, cfg );
 		sim.buildProbe( emission.emit );
 		const sky = createSky( renderer, sim, emission, cfg, auroraRT );
@@ -299,7 +299,7 @@ export default {
 		blobs.forEach( ( b ) => b.age === 0 && ( b.age = 0.6 ) );
 		{
 
-			const nPre = tier === 0 ? 14 : 40;
+			const nPre = tier === 0 ? 10 : 40;
 			const dtp = 1 / 30;
 			for ( let i = 0; i < nPre; i ++ ) {
 

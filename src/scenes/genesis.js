@@ -206,6 +206,13 @@ export default {
 
 			update( dt, t, ctx ) {
 
+				if ( DEBUG ) {
+
+					window.__genesisFrames = ( window.__genesisFrames || 0 ) + 1;
+					console.log( 'genesis: frame', window.__genesisFrames, ( performance.now() / 1000 ).toFixed( 1 ) + 's' );
+
+				}
+
 				const p = ctx.pointer;
 				const ray = p.ray;
 				const cam = camera;

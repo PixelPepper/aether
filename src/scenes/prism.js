@@ -21,7 +21,7 @@ import { PRESETS, ROOM, buildAtlas } from './prism/geometry.js';
 import { GLASSES, LIGHTS, blackbodyNorm, blackbodyXYZ, linesXYZ, LINES, sellmeier } from './prism/spectral.js';
 
 const TIERS = [
-	{ maxPix: 76000, spp: 1, bounces: 5, photons: 1 << 14, lmDensity: 34, maxD: 1, steps: 7, atrous: 4 },
+	{ maxPix: 42000, spp: 1, bounces: 5, photons: 1 << 13, lmDensity: 30, maxD: 1, steps: 6, atrous: 3 },
 	{ maxPix: 400000, spp: 1, bounces: 6, photons: 1 << 17, lmDensity: 70, maxD: 2, steps: 9, atrous: 4 },
 	{ maxPix: 1000000, spp: 2, bounces: 8, photons: 1 << 19, lmDensity: 105, maxD: 2, steps: 10, atrous: 5 },
 ];
@@ -574,7 +574,17 @@ export default {
 		// warm-up compile (async) so the first frame doesn't stall the shell
 		sceneUniforms(); frameUniforms(); cameraUniforms();
 		const kernels = [ photonK, lmK, eyeK, prepK, ...atrous, outDenoised, outRaw ];
-		for ( const k of kernels ) await renderer.computeAsync( k );
+		const LOG = params.has( 'ptlog' );
+		for ( const k of kernels ) {
+
+			const t0 = performance.now();
+			await renderer.computeAsync( k );
+			if ( LOG ) console.warn( `[prism] compile ${k.name} ${( performance.now() - t0 ).toFixed( 0 )} ms` );
+
+		}
+
+		if ( LOG ) console.warn( `[prism] res ${res.W}x${res.H} atlas ${atlas.W}x${atlas.H} photons ${cfg.photons}` );
+		let lastT = performance.now();
 		state.dirtyScene = true; state.camKey = '';
 
 		let bloomNode = null;
@@ -635,6 +645,13 @@ export default {
 				} else renderer.compute( outRaw );
 
 				state.frame ++; state.lmFrame ++;
+				if ( LOG ) {
+
+					const t = performance.now();
+					console.warn( `[prism] frame ${state.frame} ${( t - lastT ).toFixed( 0 )} ms` );
+					lastT = t;
+
+				}
 				state.photonsTotal += cfg.photons;
 
 				const now = performance.now();

@@ -10,7 +10,7 @@
 //                 [cellStart[row+x0], cellStart[row+x1+1]). Integrate and write back into the primary buffers at k.
 // The primary buffers therefore end every frame spatially sorted, which keeps the next frame's reads cache-coherent.
 
-import { StorageBufferAttribute } from 'three/webgpu';
+import { StorageBufferAttribute, Vector3, Vector4 } from 'three/webgpu';
 import {
 	Fn, If, Loop, uniform, storage, instancedArray, instanceIndex, atomicAdd, atomicStore,
 	float, int, uint, vec3, vec4, ivec3, dot, max, min, clamp, floor, fract, sqrt, length, normalize, cross, select, exp, hash, TWO_PI,
@@ -43,20 +43,20 @@ export class ParticleLife {
 			// grid
 			dim: uniform( 8, 'int' ),
 			dimF: uniform( 8 ),
-			origin: uniform( vec3( 0 ) ),
+			origin: uniform( new Vector3() ),
 			invCell: uniform( 1 ),
 			// pointer
 			time: uniform( 0 ),
-			ptr: uniform( vec3( 0 ) ),
-			ptrVel: uniform( vec3( 0 ) ),
-			rayO: uniform( vec3( 0 ) ),
-			rayD: uniform( vec3( 0, 0, - 1 ) ),
-			viewDir: uniform( vec3( 0, 0, - 1 ) ),
+			ptr: uniform( new Vector3() ),
+			ptrVel: uniform( new Vector3() ),
+			rayO: uniform( new Vector3() ),
+			rayD: uniform( new Vector3( 0, 0, - 1 ) ),
+			viewDir: uniform( new Vector3( 0, 0, - 1 ) ),
 			attract: uniform( 0 ),
 			repel: uniform( 0 ),
 			current: uniform( 0 ),
 			ptrRadius: uniform( 3 ),
-			shock: uniform( vec4( 0, 0, 0, - 100 ) ),
+			shock: uniform( new Vector4( 0, 0, 0, - 100 ) ),
 			shockAmp: uniform( 0 ),
 		};
 

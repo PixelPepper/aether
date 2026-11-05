@@ -173,10 +173,11 @@ export default {
 		U.texSize.value.set( capW, capH );
 
 		let W = 1, H = 1;
+		let dynScale = 1; // dynamic-resolution factor in [0.55, 1] (real GPUs only)
 		const fitRes = () => {
 
-			let w = Math.max( 16, Math.round( ctx.size.x * tier.scale ) );
-			let h = Math.max( 16, Math.round( ctx.size.y * tier.scale ) );
+			let w = Math.max( 16, Math.round( ctx.size.x * tier.scale * dynScale ) );
+			let h = Math.max( 16, Math.round( ctx.size.y * tier.scale * dynScale ) );
 			const s = Math.min( 1, capW / w, capH / h );
 			W = Math.max( 8, Math.floor( w * s ) ); H = Math.max( 8, Math.floor( h * s ) );
 			U.W.value = W; U.H.value = H;
@@ -614,6 +615,8 @@ export default {
 		let shotUpdates = 0;
 		if ( dbg ) console.warn( `[horizon] tier ${tierIdx} (shell ${ctx.tier}) trace ${W}x${H} cap ${capW}x${capH}` );
 		let lastT = performance.now();
+		const frameMs = [];
+		let lastFrame = performance.now();
 
 		return {
 			scene,
@@ -662,6 +665,27 @@ export default {
 				if ( dbg ) console.warn( `[horizon] frame ${ilFrame} cpu ${( performance.now() - t0 ).toFixed( 1 )} ms, dt ${( performance.now() - lastT ).toFixed( 0 )} ms` );
 				if ( dbg ) lastT = performance.now();
 
+				// dynamic resolution: keep the frame time near 60 fps by scaling the traced pixel count
+				if ( ! ctx.shot && tierIdx > 0 ) {
+
+					const now = performance.now();
+					frameMs.push( now - lastFrame ); lastFrame = now;
+					if ( frameMs.length >= 30 ) {
+
+						frameMs.sort( ( a, b ) => a - b );
+						const med = frameMs[ 15 ];
+						frameMs.length = 0;
+						const next = med > 21 ? Math.max( 0.55, dynScale * 0.9 ) : med < 14.5 ? Math.min( 1, dynScale * 1.05 ) : dynScale;
+						if ( Math.abs( next - dynScale ) > 1e-3 ) {
+
+							dynScale = next; fitRes();
+
+						}
+
+					}
+
+				}
+
 				statT -= dt;
 				if ( statT <= 0 ) {
 
@@ -674,7 +698,7 @@ export default {
 						[ 'r₊ / isco', `${U.rp.value.toFixed( 2 )} / ${rIsco.toFixed( 2 )} M` ],
 						[ 'photon orbit', photonOrbit( a ).toFixed( 2 ) + ' M' ],
 						[ 'steps', `≤ ${U.steps.value} RK4` ],
-						[ 'trace', `${W}×${H}` ],
+						[ 'trace', `${W}×${H}${dynScale < 0.999 ? ' (dyn ' + Math.round( dynScale * 100 ) + '%)' : ''}` ],
 					] );
 
 				}
