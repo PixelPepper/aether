@@ -230,7 +230,7 @@ fn hz_stars( d: vec3f, fp: f32, N: f32, seed: u32, dens: f32, flux: f32 ) -> vec
 	return mix( col, mean, wm );
 }
 fn hz_galaxy( d: vec3f ) -> vec3f {
-	let ng = normalize( vec3f( 0.55, 0.62, -0.56 ) );
+	let ng = normalize( vec3f( 0.340, 0.611, -0.715 ) );
 	let gc = normalize( cross( ng, vec3f( 0.0, 0.0, 1.0 ) ) );
 	let sb = dot( d, ng );
 	let core = max( dot( d, gc ), 0.0 );

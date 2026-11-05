@@ -39,7 +39,9 @@ export default {
 		let disposed = false;
 
 		// ───────────────────────── solver ─────────────────────────
-		const solver = new SchrodingerSolver( renderer, { N, hits: cfg.hits, mist: cfg.mist } );
+		// software rasterisers (tier 0) serialise workgroup barriers, so they get the barrier-free Stockham variant
+		const fftMode = ctx.params.get( 'qfft' ) || ( tier === 0 ? 'global' : 'shared' );
+		const solver = new SchrodingerSolver( renderer, { N, hits: cfg.hits, mist: cfg.mist, fft: fftMode } );
 		const rhoRef = 1 / ( 2 * Math.PI * 0.05 * 0.05 );
 		solver.u.rhoRef.value = rhoRef;
 
@@ -281,6 +283,23 @@ export default {
 		renderer.compute( solver.clearHits );
 		if ( DBG ) await renderer.backend.device.queue.onSubmittedWorkDone();
 		mark( 'scenario applied' );
+		if ( ctx.params.has( 'qbench' ) ) {
+
+			const q = renderer.backend.device.queue;
+			const tests = [ [ 'fft step', solver.stepList( 1 ) ], [ 'derive', [ solver.derive ] ], [ 'detect', [ solver.detect ] ], [ 'mist', [ solver.mistStep ] ] ];
+			for ( const [ name, list ] of tests ) {
+
+				let t0 = performance.now();
+				renderer.compute( list ); await q.onSubmittedWorkDone();
+				const tc = performance.now() - t0;
+				t0 = performance.now();
+				for ( let i = 0; i < 3; i ++ ) renderer.compute( list );
+				await q.onSubmittedWorkDone();
+				console.warn( `[qbench] ${name}: first ${tc.toFixed( 0 )}ms, then ${( ( performance.now() - t0 ) / 3 ).toFixed( 1 )}ms` );
+
+			}
+
+		}
 		// already in flight on frame 1; in capture mode let the experiment run a while so the still shows the build-up
 		if ( ctx.shot ) {
 

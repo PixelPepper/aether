@@ -21,7 +21,7 @@ import * as THREE from 'three/webgpu';
 import {
 	Fn, If, Loop, Break, Return, uniform, uniformArray, instancedArray, globalId, vec2, vec3, vec4, uvec2, float, uint,
 	texture, textureStore, screenUV, select, mix, clamp, max, abs, sqrt, pow, log, exp, length, normalize, dot,
-	smoothstep, atan, floor, round, tanh,
+	smoothstep, atan, floor, round, tanh, atomicAdd, atomicStore,
 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { createLUT, writeDiskProfile, LUT_N, T_MIN, T_MAX, R_MAX, relLogLum } from './horizon/blackbody.js';
@@ -111,6 +111,7 @@ export default {
 			tInsp: uniform( 650 ), period: uniform( 0.75 ), streak: uniform( 0.022 ), streakStride: uniform( 0.004 ),
 			ilStep: uniform( 1, 'uint' ), ilOff: uniform( new THREE.Vector2( 0, 0 ) ),
 			corona: uniform( P.corona ),
+			jitter: uniform( new THREE.Vector2() ), taa: uniform( 1.0 ),
 			// a bright blue giant almost exactly behind the hole along the default orbit: watch it split into two
 			// images and close into an Einstein ring as the camera drifts past the alignment
 			beacon: uniform( new THREE.Vector4( - Math.sin( 0.84 ) * Math.cos( 7 * DEG ), - Math.sin( 7 * DEG ), - Math.cos( 0.84 ) * Math.cos( 7 * DEG ), 4.0e-4 ) ),
@@ -153,8 +154,10 @@ export default {
 		capW = Math.ceil( capW * capFit / 8 ) * 8; capH = Math.ceil( capH * capFit / 8 ) * 8;
 		const cap = capW * capH;
 
+		const counter = instancedArray( 2, 'uint' ).toAtomic(); // [Σ steps, Σ rays] over a 1/16 pixel subsample
 		const bufCol = instancedArray( cap, 'vec4' );
 		const bufDir = instancedArray( cap, 'vec4' );
+		const bufHist = instancedArray( cap, 'vec4' ); // temporal accumulation (sub-pixel jittered rays)
 		const mkTex = () => {
 
 			const t = new THREE.StorageTexture( capW, capH );
@@ -182,7 +185,7 @@ export default {
 			W = Math.max( 8, Math.floor( w * s ) ); H = Math.max( 8, Math.floor( h * s ) );
 			U.W.value = W; U.H.value = H;
 			U.uvScale.value.set( W / capW, H / capH );
-			U.streakStride.value = ( W / 110 ) / capW;
+			U.streakStride.value = ( W / 300 ) / capW;
 
 		};
 
@@ -219,8 +222,8 @@ export default {
 			} );
 			const idx = gy.mul( U.W ).add( gx );
 
-			const sx = float( gx ).add( 0.5 ).div( float( U.W ) ).mul( 2 ).sub( 1 );
-			const sy = float( 1 ).sub( float( gy ).add( 0.5 ).div( float( U.H ) ).mul( 2 ) );
+			const sx = float( gx ).add( 0.5 ).add( U.jitter.x ).div( float( U.W ) ).mul( 2 ).sub( 1 );
+			const sy = float( 1 ).sub( float( gy ).add( 0.5 ).add( U.jitter.y ).div( float( U.H ) ).mul( 2 ) );
 			const n = normalize( vec3( sx.mul( U.tan.x ), sy.mul( U.tan.y ), 1 ) );
 			// p_μ = u_μ + nⁱ e_iμ  (covariant, xyz = spatial, w = t)
 			const p4 = U.tU.add( U.tR.mul( n.x ) ).add( U.tUp.mul( n.y ) ).add( U.tF.mul( n.z ) );
@@ -235,8 +238,10 @@ export default {
 			const esc = float( 0 ).toVar( 'esc' );
 			const vel = vec3( 0, 0, 1 ).toVar( 'vel' );
 
+			const nSteps = uint( 0 ).toVar( 'nSteps' );
 			Loop( U.steps, () => {
 
+				nSteps.addAssign( 1 );
 				const res = geoStep( x, p, prm ).toVar( 'res' );
 				const xn = res.element( 0 ).toVar( 'xn' );
 				const rn = res.element( 2 ).x;
@@ -345,6 +350,12 @@ export default {
 
 			bufCol.element( idx ).assign( vec4( acc, trans ) );
 			bufDir.element( idx ).assign( vec4( escapeDir( x, vel ), esc ) );
+			If( gx.bitAnd( 3 ).equal( 0 ).and( gy.bitAnd( 3 ).equal( 0 ) ), () => {
+
+				atomicAdd( counter.element( 0 ), nSteps );
+				atomicAdd( counter.element( 1 ), uint( 1 ) );
+
+			} );
 
 		} )().computeKernel( [ 8, 8, 1 ] );
 
@@ -383,8 +394,13 @@ export default {
 
 			} );
 
+			// exponential temporal accumulation of jittered samples: anti-aliases the sub-pixel photon ring and stars.
+			// No reprojection: the camera drift is ~0.6 mrad/frame and disk motion is along the (already sheared,
+			// azimuthally streaked) texture; the CPU drops the history whenever the view changes faster than that.
 			const col = c.xyz.add( sky.mul( c.w ) ).mul( U.exposure );
-			textureStore( outTex, uvec2( gx, gy ), vec4( col, 1 ) );
+			const outc = mix( bufHist.element( idx ).xyz, col, U.taa ).toVar( 'outc' );
+			bufHist.element( idx ).assign( vec4( outc, 1 ) );
+			textureStore( outTex, uvec2( gx, gy ), vec4( outc, 1 ) );
 
 		} )().computeKernel( [ 8, 8, 1 ] );
 
@@ -401,19 +417,26 @@ export default {
 			const uv0 = vec2( float( gx ).mul( 2 ).add( 1 ), float( gy ).mul( 2 ).add( 1 ) ).div( U.texSize );
 			const xmax = U.uvScale.x.sub( float( 0.5 ).div( U.texSize.x ) );
 			const acc = vec3( 0 ).toVar( 'acc' );
-			Loop( { start: - 20, end: 21, type: 'int' }, ( { i } ) => {
+			Loop( { start: - 48, end: 49, type: 'int' }, ( { i } ) => {
 
 				const fi = float( i );
-				const w = exp( abs( fi ).mul( - 0.16 ) );
+				const w = exp( abs( fi ).mul( - 0.07 ) );
 				const uvs = vec2( clamp( uv0.x.add( fi.mul( U.streakStride ) ), 0, xmax ), uv0.y );
 				const s = texture( outTex, uvs ).level( 0 ).xyz;
 				const lum = dot( s, vec3( 0.2126, 0.7152, 0.0722 ) );
-				acc.addAssign( s.mul( max( lum.sub( 1.8 ), 0 ).div( max( lum, 1e-4 ) ) ).mul( w ) );
+				acc.addAssign( s.mul( max( lum.sub( 2.5 ), 0 ).div( max( lum, 1e-4 ) ) ).mul( w ) );
 
 			} );
-			textureStore( streakTex, uvec2( gx, gy ), vec4( acc.mul( 0.16 ), 1 ) );
+			textureStore( streakTex, uvec2( gx, gy ), vec4( acc.mul( 0.07 ), 1 ) );
 
 		} )().computeKernel( [ 8, 8, 1 ] );
+
+		const resetCounter = Fn( () => {
+
+			atomicStore( counter.element( 0 ), uint( 0 ) );
+			atomicStore( counter.element( 1 ), uint( 0 ) );
+
+		} )().compute( 1 );
 
 		// ───────────────── post: Catmull–Rom upscale + bloom + streak ─────────────────
 		let bloomNode = null;
@@ -452,7 +475,7 @@ export default {
 			const uvT = screenUV.mul( U.uvScale );
 			const base = catmullRom( outTex, uvT );
 			bloomNode = bloom( texture( outTex, uvT ), bloomStrength, 0.5, 0.85 );
-			const st = texture( streakTex, uvT.mul( 0.5 ) ).xyz.mul( U.streak.mul( 16.0 ) ).mul( vec3( 0.75, 0.85, 1.15 ) );
+			const st = texture( streakTex, uvT.mul( 0.5 ) ).xyz.mul( U.streak.mul( 16.0 ) ).mul( vec3( 0.85, 0.92, 1.08 ) );
 			return vec4( base.add( bloomNode.xyz ).add( st ), 1 );
 
 		};
@@ -599,8 +622,16 @@ export default {
 		{
 
 			const phiCam = Math.atan2( camBH[ 1 ], camBH[ 0 ] );
-			spawn( 11.5, phiCam - 0.9, 120 );
-			spawn( 15, phiCam + 2.6, 40 );
+			if ( ctx.params.has( 'hzblobtest' ) ) {
+
+				spawn( 8, phiCam, 30 ); spawn( 12, phiCam + Math.PI, 30 ); spawn( 10, phiCam + Math.PI / 2, 30 ); spawn( 10, phiCam - Math.PI / 2, 30 );
+
+			} else {
+
+				spawn( 11.5, phiCam - 0.9, 120 );
+				spawn( 15, phiCam + 2.6, 40 );
+
+			}
 
 		}
 
@@ -616,6 +647,22 @@ export default {
 		if ( dbg ) console.warn( `[horizon] tier ${tierIdx} (shell ${ctx.tier}) trace ${W}x${H} cap ${capW}x${capH}` );
 		let lastT = performance.now();
 		const frameMs = [];
+		const prevView = new Float32Array( 16 );
+		let prevW = 0, prevTilt = 0, taaFrames = 0, jitterN = 0;
+		const halton = ( i, b ) => {
+
+			let f = 1, r = 0;
+			for ( ; i > 0; i = Math.floor( i / b ) ) {
+
+				f /= b; r += f * ( i % b );
+
+			}
+
+			return r;
+
+		};
+
+		let avgSteps = 0, readPending = false;
 		let lastFrame = performance.now();
 
 		return {
@@ -657,6 +704,25 @@ export default {
 
 				}
 
+				// sub-pixel jitter (Halton 2,3) + history weight; history is dropped on fast view changes / resizes
+				const view = camera.matrixWorld.elements;
+				let moved = 0;
+				for ( let i = 0; i < 16; i ++ ) moved = Math.max( moved, Math.abs( view[ i ] - prevView[ i ] ) * ( i >= 12 ? 1 / Math.max( rc, 1 ) : 1 ) );
+				prevView.set( view );
+				const useTaa = IL === 1 && ! ctx.shot && moved < 0.004 && W === prevW && P.tilt === prevTilt && taaFrames > 0;
+				taaFrames ++; prevW = W; prevTilt = P.tilt;
+				if ( useTaa ) {
+
+					jitterN ++;
+					U.jitter.value.set( halton( jitterN, 2 ) - 0.5, halton( jitterN, 3 ) - 0.5 );
+					U.taa.value = 0.4;
+
+				} else {
+
+					U.jitter.value.set( 0, 0 ); U.taa.value = 1;
+
+				}
+
 				const disp = [ Math.ceil( W / IL / 8 ), Math.ceil( H / IL / 8 ), 1 ];
 				const t0 = dbg ? performance.now() : 0;
 				renderer.compute( traceKernel, disp );
@@ -690,6 +756,24 @@ export default {
 				if ( statT <= 0 ) {
 
 					statT = 0.5;
+					if ( ! ctx.shot && ! readPending ) {
+
+						readPending = true;
+						renderer.getArrayBufferAsync( counter.value ).then( ( buf ) => {
+
+							const u = new Uint32Array( buf );
+							if ( u[ 1 ] > 0 ) avgSteps = u[ 0 ] / u[ 1 ];
+							readPending = false;
+
+						} ).catch( () => {
+
+							readPending = false;
+
+						} );
+						renderer.compute( resetCounter );
+
+					}
+
 					const a = U.aP.value;
 					ctx.setStats( [
 						[ 'metric', 'Kerr · Kerr–Schild' ],
@@ -697,7 +781,7 @@ export default {
 						[ 'r obs', rc.toFixed( 1 ) + ' M' ],
 						[ 'r₊ / isco', `${U.rp.value.toFixed( 2 )} / ${rIsco.toFixed( 2 )} M` ],
 						[ 'photon orbit', photonOrbit( a ).toFixed( 2 ) + ' M' ],
-						[ 'steps', `≤ ${U.steps.value} RK4` ],
+						[ 'RK4 steps / ray', avgSteps > 0 ? `${avgSteps.toFixed( 0 )} avg · ≤ ${U.steps.value}` : `≤ ${U.steps.value}` ],
 						[ 'trace', `${W}×${H}${dynScale < 0.999 ? ' (dyn ' + Math.round( dynScale * 100 ) + '%)' : ''}` ],
 					] );
 
@@ -731,8 +815,9 @@ export default {
 				el.removeEventListener( 'pointerup', onUp );
 				controls.autoRotate = false;
 				Object.assign( controls, ctlSaved );
-				traceKernel.dispose(); composeKernel.dispose(); streakKernel.dispose();
-				bufCol.value.dispose(); bufDir.value.dispose();
+				traceKernel.dispose(); composeKernel.dispose(); streakKernel.dispose(); resetCounter.dispose();
+				counter.value.dispose();
+				bufCol.value.dispose(); bufDir.value.dispose(); bufHist.value.dispose();
 				outTex.dispose(); streakTex.dispose(); lut.dispose();
 				bloomNode?.dispose();
 

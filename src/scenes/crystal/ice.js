@@ -27,15 +27,15 @@ export function createStudio() {
 	const S = {
 		// optics
 		ior: uniform( 1.31 ), disp: uniform( 0.022 ), // ice n≈1.31; dispersion exaggerated ~4× so it reads on screen
-		thick: uniform( 0.018 ), // half-thickness of a rib (β-normalised mass 1) in flake-local units (radius 1)
-		bump: uniform( 0.55 ), // relief → normal strength
-		nrmR: uniform( 1.6 ), // normal sampling radius in texels
+		thick: uniform( 0.024 ), // half-thickness of a rib (β-normalised mass 1) in flake-local units (radius 1)
+		bump: uniform( 1.0 ), // relief → normal strength
+		nrmR: uniform( 2.2 ), // normal sampling radius in texels
 		texel: uniform( 1 / 1024 ),
-		absorb: uniform( 0.9 ),
-		internal: uniform( 4.0 ),
-		ringI: uniform( 2.0 ), ring0: uniform( 0.05 ), ring1: uniform( 0.24 ), ring2: uniform( 0.5 ), ring3: uniform( 1.0 ),
-		glint: uniform( 28.0 ), glintRes: uniform( 512 ), glintTilt: uniform( 0.5 ), glintDensity: uniform( 0.45 ),
-		rim: uniform( 0.5 ),
+		absorb: uniform( 1.4 ),
+		internal: uniform( 2.5 ),
+		ringI: uniform( 1.8 ), ring0: uniform( 0.07 ), ring1: uniform( 0.3 ), ring2: uniform( 0.5 ), ring3: uniform( 1.0 ),
+		glint: uniform( 24.0 ), glintRes: uniform( 512 ), glintTilt: uniform( 1.1 ), glintDensity: uniform( 0.6 ),
+		rim: uniform( 0.3 ),
 		front: uniform( 0.5 ), // quasi-liquid front glow
 		flash: uniform( 0 ), flashCol: uniform( new THREE.Color( 1.0, 0.75, 0.45 ) ),
 		tanHalf: uniform( Math.tan( THREE.MathUtils.degToRad( 25 ) ) ), aspect: uniform( 16 / 9 ),
@@ -47,7 +47,7 @@ export function createStudio() {
 
 		const d = normalize( dirIn.add( vec3( 0, 0, 1e-5 ) ) ); // guard: zero vector from a failed refraction
 		const g = smoothstep( - 0.45, 0.55, d.y.mul( 0.85 ).sub( d.x.mul( 0.4 ) ) );
-		const base = mix( vec3( 0.0036, 0.0042, 0.011 ), vec3( 0.013, 0.016, 0.040 ), g );
+		const base = mix( vec3( 0.006, 0.007, 0.017 ), vec3( 0.016, 0.020, 0.048 ), g );
 		const dy = d.y.sub( 0.04 );
 		const pool = exp( d.x.mul( d.x ).add( dy.mul( dy ) ).mul( - 7.0 ) ).mul( vec3( 0.010, 0.015, 0.034 ) );
 		const n = mx_noise_float( d.mul( vec3( 2.2, 2.2, 1.0 ) ) ).mul( 0.5 ).add( 0.5 );
@@ -64,7 +64,7 @@ export function createStudio() {
 		const perp = dir.sub( straight.mul( c ) );
 		const phi = atan( perp.y, perp.x.add( 1e-6 ) );
 		const ring = smoothstep( S.ring0, S.ring1, ang ).mul( float( 1 ).sub( smoothstep( S.ring2, S.ring3, ang ).mul( 0.55 ) ) );
-		const warm = vec3( 1.0, 0.64, 0.30 ), cool = vec3( 0.26, 0.66, 1.0 ), vio = vec3( 0.66, 0.46, 1.0 );
+		const warm = vec3( 1.0, 0.55, 0.16 ), cool = vec3( 0.12, 0.6, 1.0 ), vio = vec3( 0.62, 0.3, 1.0 );
 		const col = mix( cool, warm, smoothstep( - 0.75, 0.75, sin( phi ) ) ).toVar();
 		col.assign( mix( col, vio, pow( abs( cos( phi ) ), 4.0 ).mul( 0.55 ) ) );
 		return velvet( dir ).add( col.mul( ring ).mul( S.ringI ) );
@@ -78,7 +78,7 @@ export function createStudio() {
 		const f = max( dot( dir, S.lFill ), 0 );
 		const key = pow( k, 18.0 ).mul( 2.2 ).add( pow( k, 300.0 ).mul( 9.0 ) );
 		const fill = pow( f, 14.0 ).mul( 0.9 );
-		const top = smoothstep( - 0.1, 1.0, dir.y ).mul( 0.05 );
+		const top = smoothstep( - 0.1, 1.0, dir.y ).mul( 0.02 );
 		return velvet( dir ).add( vec3( 1.0, 0.9, 0.78 ).mul( key ) ).add( vec3( 0.45, 0.72, 1.0 ).mul( fill.add( top ) ) );
 
 	} );
@@ -187,9 +187,9 @@ export function createIceMaterial( studio, tex, P, debug = '' ) {
 		const r1 = hash( gid.add( 17.0 ) ), r2 = hash( gid.add( 31.0 ) ), r3 = hash( gid.add( 47.0 ) );
 		const tilt = vec2( r1.sub( 0.5 ), r2.sub( 0.5 ) ).mul( S.glintTilt );
 		const nG = normalize( transformNormalToView( normalize( nL.add( vec3( tilt, 0 ) ) ) ) );
-		const g1 = pow( max( dot( nG, normalize( S.lKey.add( V ) ) ), 0 ), 900.0 );
-		const g2 = pow( max( dot( nG, normalize( S.lSpark.add( V ) ) ), 0 ), 1400.0 );
-		const g3 = pow( max( dot( nG, normalize( S.lFill.add( V ) ) ), 0 ), 900.0 );
+		const g1 = pow( max( dot( nG, normalize( S.lKey.add( V ) ) ), 0 ), 500.0 );
+		const g2 = pow( max( dot( nG, normalize( S.lSpark.add( V ) ) ), 0 ), 700.0 );
+		const g3 = pow( max( dot( nG, normalize( S.lFill.add( V ) ) ), 0 ), 500.0 );
 		const slope = clamp( length( nL.xy ).mul( 3.0 ), 0, 1 );
 		const gmask = select( r3.lessThan( S.glintDensity.mul( slope.mul( 0.7 ).add( 0.3 ) ) ), float( 1 ), float( 0 ) );
 		const glint = vec3( 1.0, 0.93, 0.85 ).mul( g1 ).add( vec3( 0.85, 0.95, 1.0 ).mul( g2 ) ).add( vec3( 0.6, 0.8, 1.0 ).mul( g3.mul( 0.6 ) ) )

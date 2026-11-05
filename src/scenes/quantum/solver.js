@@ -40,9 +40,10 @@ function bitrev( i, bits ) {
 
 export class SchrodingerSolver {
 
-	constructor( renderer, { N, hits = 8192, mist = 4096 } ) {
+	constructor( renderer, { N, hits = 8192, mist = 4096, fft = 'shared' } ) {
 
 		this.renderer = renderer;
+		this.fft = fft; // 'shared': workgroup-memory kernels (GPUs) · 'global': barrier-free Stockham ping-pong (SwiftShader)
 		this.N = N;
 		this.H = N >> 1;
 		this.L = Math.log2( N );
@@ -52,6 +53,7 @@ export class SchrodingerSolver {
 
 		const NN = N * N;
 		this.psi = instancedArray( NN, 'vec2' ).setName( 'psi' );
+		if ( fft === 'global' ) this.psiB = instancedArray( NN, 'vec2' ).setName( 'psiB' );
 		this.potArray = new Float32Array( NN * 2 ); // (V, W) per cell
 		this.pot = instancedArray( this.potArray, 'vec2' ).setName( 'pot' );
 		this.kArray = new Float32Array( N * 2 );
@@ -260,10 +262,18 @@ export class SchrodingerSolver {
 		const NN = N * N;
 		const dx = this.dx;
 
-		this.rowFirst = this._rowKernel( 'first' );
-		this.rowMid = this._rowKernel( 'mid' );
-		this.rowLast = this._rowKernel( 'last' );
-		this.col = this._colKernel();
+		if ( this.fft === 'shared' ) {
+
+			this.rowFirst = this._rowKernel( 'first' );
+			this.rowMid = this._rowKernel( 'mid' );
+			this.rowLast = this._rowKernel( 'last' );
+			this.col = this._colKernel();
+
+		} else {
+
+			this._buildGlobalFFT();
+
+		}
 
 		// Gaussian wavepacket  ψ = (2πσ²)^{-1/2} exp(−|r−c|²/4σ²) exp(i k·(r−c))
 		this.initPacket = Fn( () => {
@@ -329,6 +339,87 @@ export class SchrodingerSolver {
 
 		this._buildDetector();
 		this._buildMist();
+
+	}
+
+	// Barrier-free fallback: radix-2 Stockham autosort FFT, one dispatch per stage, ping-ponging between two storage
+	// buffers (natural order in and out). Software rasterisers serialise workgroup barriers badly, so tier 0 uses this.
+	// A Strang step = row FFT (V/2 fused into stage 0) → col FFT (kinetic phase fused into the last stage)
+	//               → col IFFT → row IFFT (V/2 fused into the last stage): 4·log2N dispatches, ending back in `psi`.
+	_buildGlobalFFT() {
+
+		const { N, H, L, u } = this;
+		const variants = new Map();
+		const kernel = ( src, dst ) => {
+
+			const p = { s: uniform( 0, 'uint' ), axis: uniform( 0, 'uint' ), sign: uniform( 1 ), pre: uniform( 0, 'uint' ), post: uniform( 0, 'uint' ) };
+			const node = Fn( () => {
+
+				const t = instanceIndex;
+				const isRow = p.axis.equal( 0 );
+				const line = isRow.select( t.div( H ), t.mod( N ) ).toVar();
+				const j = isRow.select( t.mod( H ), t.div( N ) ).toVar();
+				const at = ( q ) => isRow.select( line.mul( N ).add( q ), q.mul( N ).add( line ) );
+				const ns = uint( 1 ).shiftLeft( p.s ).toVar();
+				const k = j.bitAnd( ns.sub( 1 ) ).toVar();
+				const a0 = at( j ).toVar(), a1 = at( j.add( H ) ).toVar();
+				const in0 = src.element( a0 ).toVar(), in1 = src.element( a1 ).toVar();
+				If( p.pre.equal( 1 ), () => {
+
+					in0.assign( cmul( in0, this._potFactor( a0, u.half ) ) );
+					in1.assign( cmul( in1, this._potFactor( a1, u.half ) ) );
+
+				} );
+				const ang = k.toFloat().mul( p.sign ).mul( Math.PI ).div( ns.toFloat() );
+				in1.assign( cmul( in1, vec2( cos( ang ), sin( ang ) ) ) );
+				const d0 = j.mul( 2 ).sub( k ).toVar(), d1 = d0.add( ns ).toVar();
+				const o0 = in0.add( in1 ).toVar(), o1 = in0.sub( in1 ).toVar();
+				const b0 = at( d0 ).toVar(), b1 = at( d1 ).toVar();
+				If( p.post.equal( 1 ), () => {
+
+					// kinetic propagator in natural (kx, ky) order, 1/N² folded into the table
+					const kl = this.ktab.element( line ).toVar();
+					o0.assign( cmul( o0, cmul( kl, this.ktab.element( d0 ) ) ) );
+					o1.assign( cmul( o1, cmul( kl, this.ktab.element( d1 ) ) ) );
+
+				} ).ElseIf( p.post.equal( 2 ), () => {
+
+					o0.assign( cmul( o0, this._potFactor( b0, u.half ) ) );
+					o1.assign( cmul( o1, this._potFactor( b1, u.half ) ) );
+
+				} );
+				dst.element( b0 ).assign( o0 );
+				dst.element( b1 ).assign( o1 );
+
+			} )().compute( N * H, [ 64 ] ).setName( 'tdse-stockham' );
+			return { node, p };
+
+		};
+
+		const A = this.psi, B = this.psiB;
+		const stages = [];
+		let flip = false;
+		const pass = ( axis, sign, preFirst, postLast ) => {
+
+			for ( let s = 0; s < L; s ++ ) {
+
+				const { node, p } = flip ? kernel( B, A ) : kernel( A, B );
+				p.s.value = s; p.axis.value = axis; p.sign.value = sign;
+				p.pre.value = ( s === 0 ) ? preFirst : 0;
+				p.post.value = ( s === L - 1 ) ? postLast : 0;
+				stages.push( node );
+				flip = ! flip;
+
+			}
+
+		};
+
+		pass( 0, - 1, 1, 0 ); // row FFT, V/2 on load
+		pass( 1, - 1, 0, 1 ); // col FFT, kinetic on store
+		pass( 1, + 1, 0, 0 ); // col IFFT
+		pass( 0, + 1, 0, 2 ); // row IFFT, V/2 on store
+		this.stockhamStep = stages;
+		variants.clear();
 
 	}
 
@@ -413,7 +504,7 @@ export class SchrodingerSolver {
 				const yp = psiAt( ix, iy.add( 1 ) ), ym = psiAt( ix, iy.sub( 1 ) );
 				const cx = cmul( xp, vec2( xm.x, xm.y.negate() ) );
 				const cy = cmul( yp, vec2( ym.x, ym.y.negate() ) );
-				const v = vec2( atan( cx.y, cx.x ), atan( cy.y, cy.x ) ).div( 2 * dx ).toVar();
+				const v = vec2( atan( cx.y, cx.x.add( 1e-30 ) ), atan( cy.y, cy.x.add( 1e-30 ) ) ).div( 2 * dx ).toVar();
 				const sp = length( v );
 				v.mulAssign( min( 1, float( 600 ).div( sp.add( 1e-6 ) ) ) );
 				st.xy.addAssign( v.mul( u.frameTau.mul( 0.5 ) ) );
@@ -468,7 +559,7 @@ export class SchrodingerSolver {
 		this.u.full.value = dt;
 		for ( let j = 0; j < N; j ++ ) {
 
-			const n = bitrev( j, L );
+			const n = this.fft === 'global' ? j : bitrev( j, L ); // shared-memory path keeps k-space bit-reversed
 			const kk = 2 * Math.PI * ( n < N / 2 ? n : n - N );
 			const ph = - 0.5 * kk * kk * dt;
 			this.kArray[ j * 2 ] = Math.cos( ph ) / N;
@@ -489,7 +580,13 @@ export class SchrodingerSolver {
 	stepList( steps ) {
 
 		let l = this._lists.get( steps );
-		if ( ! l ) {
+		if ( ! l && this.fft === 'global' ) {
+
+			l = [];
+			for ( let s = 0; s < steps; s ++ ) l.push( ...this.stockhamStep );
+			this._lists.set( steps, l );
+
+		} else if ( ! l ) {
 
 			l = [ this.rowFirst ];
 			for ( let s = 0; s < steps; s ++ ) {
@@ -544,10 +641,10 @@ export class SchrodingerSolver {
 
 	dispose() {
 
-		const nodes = [ this.rowFirst, this.rowMid, this.rowLast, this.col, this.initPacket, this.zero, this.normPass, this.derive,
+		const nodes = [ ...( this.stockhamStep || [] ), this.rowFirst, this.rowMid, this.rowLast, this.col, this.initPacket, this.zero, this.normPass, this.derive,
 			this.paint, this.detect, this.clearHits, this.mistStep ];
 		for ( const n of nodes ) n?.dispose?.();
-		for ( const b of [ this.psi, this.pot, this.ktab, this.rowSum, this.rng, this.hits, this.mist ] ) b.value?.dispose?.();
+		for ( const b of [ this.psi, this.psiB, this.pot, this.ktab, this.rowSum, this.rng, this.hits, this.mist ] ) b?.value?.dispose?.();
 		this.counterAttr.dispose?.();
 		this.field.dispose();
 		this._lists.clear();

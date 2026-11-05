@@ -227,6 +227,24 @@ export default {
 		placeCamera( 0 );
 		render.updateCamera( camera );
 
+		if ( ctx.params.has( 'sbench' ) ) {
+
+			for ( let k = 0; k < 2; k ++ ) {
+
+				let t0 = performance.now();
+				fluid.step( 1 / 60 );
+				await fluid.sync();
+				const tSim = performance.now() - t0;
+				t0 = performance.now();
+				render.renderVolume();
+				await render.sync();
+				const tVol = performance.now() - t0;
+				dbg( `bench sim ${tSim.toFixed( 0 )} ms, volume ${tVol.toFixed( 0 )} ms` );
+
+			}
+
+		}
+
 		// ── post: composite volume over sky/limb, bloom ──
 		let bloomNode = null;
 		let frameNo = 0;

@@ -41,7 +41,10 @@ export default {
 		const DBG = params.has( 'adebug' );
 		const T0 = performance.now();
 		const log = ( m ) => DBG && console.warn( `[aurora ${( ( performance.now() - T0 ) / 1000 ).toFixed( 1 )}s] ${m}` );
-		const tier = Math.max( 0, Math.min( 2, ctx.tier ) );
+		// The headless harness runs on SwiftShader, whose adapter info can come back empty (so the shell may report
+		// tier 2). Capture mode without an explicit ?tier= is always treated as the software tier.
+		const softGuess = ctx.isSoftware || renderer.backend.adapter?.info?.isFallbackAdapter === true || ( ctx.shot && ! params.has( 'tier' ) );
+		const tier = softGuess ? 0 : Math.max( 0, Math.min( 2, ctx.tier ) );
 		const cfg = { ...TIERS[ tier ] };
 		if ( params.has( 'electrons' ) ) cfg.electrons = Math.min( cfg.maxElectrons, parseInt( params.get( 'electrons' ) ) );
 

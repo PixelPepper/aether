@@ -13,7 +13,7 @@ import * as THREE from 'three/webgpu';
 import {
 	Fn, instancedArray, instanceIndex, uint, int, float, vec2, vec3, vec4, uvec3, uniform, uniformArray,
 	workgroupArray, workgroupBarrier, atomicAdd, atomicLoad, atomicStore, floor, sin, cos, sqrt, log, pow, exp,
-	max, select, textureStore,
+	max, select, textureStore, Loop,
 } from 'three/tsl';
 
 export const MAX_SEEDS = 8;
@@ -113,85 +113,79 @@ export class ParticleMesh {
 	makeFFT( buf, axis, mode ) {
 
 		const N = this.N, H = N >> 1, LOG = this.LOG;
-		const A = workgroupArray( 'vec2', N ), B = workgroupArray( 'vec2', N );
+		// one workgroup array holds both ping-pong halves; stages run in a real loop so the shader stays small
+		// (SwiftShader turns every barrier site into a coroutine split — unrolled code compiles very slowly there)
+		const W = workgroupArray( 'vec2', 2 * N );
 		const green = this.u.green;
 
 		const fn = Fn( () => {
 
 			const t = instanceIndex.bitAnd( uint( H - 1 ) ).toVar( 't' );
-			const line = instanceIndex.shiftRight( uint( LOG - 1 ) ).toVar( 'line' );
+			const lineId = instanceIndex.shiftRight( uint( LOG - 1 ) ).toVar( 'lineId' );
 			let base, stride;
 			if ( axis === 0 ) {
 
-				base = line.mul( uint( N ) ); stride = 1;
+				base = lineId.mul( uint( N ) ); stride = 1;
 
 			} else if ( axis === 1 ) {
 
-				base = line.bitAnd( uint( N - 1 ) ).add( line.shiftRight( uint( LOG ) ).mul( uint( N * N ) ) ); stride = N;
+				base = lineId.bitAnd( uint( N - 1 ) ).add( lineId.shiftRight( uint( LOG ) ).mul( uint( N * N ) ) ); stride = N;
 
 			} else {
 
-				base = line; stride = N * N;
+				base = lineId; stride = N * N;
 
 			}
 
 			const i0 = base.add( t.mul( uint( stride ) ) ).toVar( 'i0' );
 			const i1 = i0.add( uint( H * stride ) ).toVar( 'i1' );
 			const tH = t.add( uint( H ) ).toVar( 'tH' );
+			const srcOff = uint( 0 ).toVar( 'srcOff' );
+			const dstOff = uint( N ).toVar( 'dstOff' );
 
-			A.element( t ).assign( buf.element( i0 ) );
-			A.element( tH ).assign( buf.element( i1 ) );
+			W.element( t ).assign( buf.element( i0 ) );
+			W.element( tH ).assign( buf.element( i1 ) );
 			workgroupBarrier();
 
-			let src = A, dst = B;
 			const stages = ( sign ) => {
 
-				for ( let s = 0; s < LOG; s ++ ) {
+				const Ns = uint( 1 ).toVar();
+				Loop( { start: uint( 0 ), end: uint( LOG ), type: 'uint', condition: '<' }, () => {
 
-					const Ns = 1 << s;
-					const v0 = src.element( t ).toVar();
-					const v1 = src.element( tH ).toVar();
-					let w1;
-					let o;
-					if ( s === 0 ) {
-
-						w1 = v1;
-						o = t.shiftLeft( uint( 1 ) );
-
-					} else {
-
-						const k = t.bitAnd( uint( Ns - 1 ) ).toVar();
-						const ang = float( k ).mul( sign * Math.PI / Ns );
-						const c = cos( ang ).toVar(), sn = sin( ang ).toVar();
-						w1 = vec2( v1.x.mul( c ).sub( v1.y.mul( sn ) ), v1.x.mul( sn ).add( v1.y.mul( c ) ) ).toVar();
-						o = t.sub( k ).shiftLeft( uint( 1 ) ).add( k ).toVar();
-
-					}
-
-					dst.element( o ).assign( v0.add( w1 ) );
-					dst.element( o.add( uint( Ns ) ) ).assign( v0.sub( w1 ) );
+					const k = t.bitAnd( Ns.sub( 1 ) ).toVar();
+					const v0 = W.element( srcOff.add( t ) ).toVar();
+					const v1 = W.element( srcOff.add( tH ) ).toVar();
+					const ang = float( k ).mul( sign * Math.PI ).div( float( Ns ) ).toVar();
+					const c = cos( ang ).toVar(), sn = sin( ang ).toVar();
+					const w1 = vec2( v1.x.mul( c ).sub( v1.y.mul( sn ) ), v1.x.mul( sn ).add( v1.y.mul( c ) ) ).toVar();
+					const o = dstOff.add( t.sub( k ).shiftLeft( uint( 1 ) ).add( k ) ).toVar();
+					W.element( o ).assign( v0.add( w1 ) );
+					W.element( o.add( Ns ) ).assign( v0.sub( w1 ) );
 					workgroupBarrier();
-					const tmp = src; src = dst; dst = tmp;
+					const tmp = srcOff.toVar();
+					srcOff.assign( dstOff );
+					dstOff.assign( tmp );
+					Ns.shiftLeftAssign( uint( 1 ) );
 
-				}
+				} );
 
 			};
 
-			if ( mode === 'inv' ) stages( 1 );
-			else stages( - 1 );
+			stages( mode === 'inv' ? 1 : - 1 );
 
 			if ( mode === 'poisson' ) {
 
-				// line = x + y N ; element index along z = kz
-				const fx = float( line.bitAnd( uint( N - 1 ) ) ).mul( Math.PI / N );
-				const fy = float( line.shiftRight( uint( LOG ) ) ).mul( Math.PI / N );
+				// lineId = x + y N ; element index along z = kz
+				const fx = float( lineId.bitAnd( uint( N - 1 ) ) ).mul( Math.PI / N );
+				const fy = float( lineId.shiftRight( uint( LOG ) ) ).mul( Math.PI / N );
 				const sxy = sin( fx ).pow2().add( sin( fy ).pow2() ).toVar();
 				for ( const m of [ t, tH ] ) {
 
 					const sz = sin( float( m ).mul( Math.PI / N ) ).pow2();
 					const k2 = sxy.add( sz ).mul( 4 );
 					const G = select( k2.greaterThan( 1e-9 ), green.div( max( k2, 1e-9 ) ), float( 0 ) );
-					src.element( m ).assign( src.element( m ).mul( G ) );
+					const e = W.element( srcOff.add( m ) );
+					e.assign( e.mul( G ) );
 
 				}
 
@@ -200,8 +194,8 @@ export class ParticleMesh {
 
 			}
 
-			buf.element( i0 ).assign( src.element( t ) );
-			buf.element( i1 ).assign( src.element( tH ) );
+			buf.element( i0 ).assign( W.element( srcOff.add( t ) ) );
+			buf.element( i1 ).assign( W.element( srcOff.add( tH ) ) );
 
 		} );
 

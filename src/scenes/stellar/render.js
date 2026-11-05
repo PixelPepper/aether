@@ -277,6 +277,11 @@ export function createRender( ctx, fluid, cfg ) {
 			U.frame.value = ( U.frame.value + 1 ) % 64;
 
 		},
+		sync() {
+
+			return renderer.readRenderTargetPixelsAsync( accRT[ 1 - accIndex ], 0, 0, 2, 2 );
+
+		},
 		resetHistory() {
 
 			accValid = false;

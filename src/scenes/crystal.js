@@ -59,7 +59,7 @@ export default {
 		scene.backgroundNode = studio.background;
 
 		// ── camera: slightly above, looking at the flake whose normal precesses ~20° off the view axis ──
-		camera.position.set( 0, 0.32, 2.65 );
+		camera.position.set( 0, 0.26, 2.2 );
 		controls.target.set( 0, 0, 0 );
 		controls.enablePan = false;
 		controls.minDistance = 1.1;
@@ -372,6 +372,8 @@ export default {
 				const maxSteps = warpSteps > 0 ? warpSteps : ( tier === 0 ? 4000 : 60000 );
 				const t0 = performance.now();
 				const T = GROW_TIME / Math.max( 0.05, gp.speed );
+				// debug: force a cloud-layer jump at a given radius fraction (to capture the effect of a click)
+				let jumpAt = params.has( 'jumpat' ) ? parseFloat( params.get( 'jumpat' ) ) : - 1;
 				let done = 0;
 				while ( done < maxSteps ) {
 
@@ -381,7 +383,15 @@ export default {
 					done += n;
 					const res = await lattice.poll();
 					onRadius( res );
-					st.growT = T * Math.pow( Math.min( 1, lattice.radius / R_TARGET ), 1 / 0.85 );
+					const g = T * Math.pow( Math.min( 1, lattice.radius / R_TARGET ), 1 / 0.85 );
+					if ( gp.drift ) drift( Math.max( 0, g - st.growT ) ); // conditions keep drifting in virtual time
+					st.growT = g;
+					if ( jumpAt > 0 && lattice.radius >= jumpAt * R_TARGET ) {
+
+						cloudJump(); jumpAt = - 1;
+
+					}
+
 					if ( warpFrac > 0 && lattice.radius >= warpFrac * R_TARGET ) break;
 
 				}
@@ -484,7 +494,7 @@ export default {
 
 						const frac = Math.max( lattice.radius, 6 ) / RD;
 						const target = THREE.MathUtils.clamp( 0.62 / frac, 1.0, 3.0 );
-						if ( ! params.has( 'dbgcam' ) ) s.scale += ( target - s.scale ) * ( 1 - Math.exp( - dt / 1.2 ) );
+						if ( ! params.has( 'dbgcam' ) ) s.scale += ( target - s.scale ) * ( ctx.shot ? 1 : 1 - Math.exp( - dt / 1.2 ) );
 						s.group.scale.setScalar( s.scale );
 
 					} else if ( s.state === 'retire' ) {

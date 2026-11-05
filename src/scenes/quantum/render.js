@@ -22,7 +22,7 @@ export const phasePalette = Fn( ( [ theta ] ) => {
 	const wsum = float( 0 ).toVar();
 	for ( let i = 0; i < 4; i ++ ) {
 
-		const w = pow( cos( theta.sub( i * Math.PI / 2 ) ).mul( 0.5 ).add( 0.5 ), 2.2 );
+		const w = pow( max( cos( theta.sub( i * Math.PI / 2 ) ).mul( 0.5 ).add( 0.5 ), 0 ), 2.2 );
 		acc.addAssign( vec3( ...PAL[ i ] ).mul( w ) );
 		wsum.addAssign( w );
 
@@ -114,7 +114,7 @@ const fieldColor = ( f, look, rhoRef ) => {
 
 	// f = (Re ψ, Im ψ, h, V); amplitude relative to the reference packet peak
 	const amp = length( f.xy ).div( Math.sqrt( rhoRef ) );
-	const phaseCol = phasePalette( atan( f.y, f.x ) );
+	const phaseCol = phasePalette( atan( f.y, f.x.add( 1e-20 ) ) ); // atan2(0,0) is undefined in WGSL
 	const probCol = heatPalette( clamp( pow( amp, 0.8 ).mul( 1.1 ), 0, 1 ) );
 	return { amp, col: mix( phaseCol, probCol, look.mode ) };
 

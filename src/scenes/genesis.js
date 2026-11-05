@@ -188,9 +188,10 @@ export default {
 
 		// Let the soup pre-organise a little before the first frame (cheap on real GPUs).
 		const warm = params.has( 'warm' ) ? parseInt( params.get( 'warm' ) ) : [ ctx.shot ? 50 : 0, 90, 150 ][ Math.min( tier, 2 ) ];
-		for ( let i = 0; i < warm; i ++ ) sim.step( 0.02 );
 		const tw = performance.now();
-		await renderer.computeAsync( sim.forceKernel ); // flush; also guarantees pipelines are compiled
+		for ( let i = 0; i < warm - 1; i ++ ) sim.step( 0.02 );
+		sim.step( 0.02 ); // sets dt/friction uniforms for the final (awaited) step below
+		await renderer.computeAsync( sim.stepList ); // flush + guarantees every pipeline is compiled before frame 1
 		if ( DEBUG ) console.log( 'genesis: warm-up', warm, 'steps', ( performance.now() - tw ).toFixed( 0 ), 'ms' );
 
 		// ── pointer state ──
@@ -209,7 +210,7 @@ export default {
 				if ( DEBUG ) {
 
 					window.__genesisFrames = ( window.__genesisFrames || 0 ) + 1;
-					console.log( 'genesis: frame', window.__genesisFrames, ( performance.now() / 1000 ).toFixed( 1 ) + 's' );
+					if ( window.__genesisFrames < 4 ) console.log( 'genesis: frame', window.__genesisFrames, ( performance.now() / 1000 ).toFixed( 1 ) + 's' );
 
 				}
 
